@@ -144,6 +144,10 @@
 # include <limits.h>
 #endif
 
+#include <ext2fs/ext2fs.h>
+
+#define debugf printf
+
 struct stats {
 	unsigned long nblocks;
 	unsigned long ninodes;
@@ -175,7 +179,7 @@ struct stats {
 #define EXT2_ACL_DATA_INO    4     // ACL inode
 #define EXT2_BOOT_LOADER_INO 5     // Boot loader inode
 #define EXT2_UNDEL_DIR_INO   6     // Undelete directory inode
-#define EXT2_FIRST_INO       11    // First non reserved inode
+//#define EXT2_FIRST_INO       11    // First non reserved inode
 
 // magic number for ext2
 
@@ -570,12 +574,15 @@ typedef struct
 
 /* Filesystem structure that support groups */
 #if BLOCKSIZE == 1024
+#if 0
 typedef struct
 {
 	block zero;            // The famous block 0
 	superblock sb;         // The superblock
 	groupdescriptor gd[0]; // The group descriptors
 } filesystem;
+#endif
+typedef struct struct_ext2_filsys filesystem;
 #else
 #error UNHANDLED BLOCKSIZE
 #endif
@@ -904,7 +911,8 @@ free_blk(filesystem *fs, uint32 bk)
 static uint32
 alloc_nod(filesystem *fs)
 {
-	uint32 nod,best_group=0;
+	ext2_ino_t nod;
+	uint32 best_group=0;
 	uint32 grp,nbgroups,avefreei;
 
 	nbgroups = GRP_NBGROUPS(fs);
@@ -932,6 +940,7 @@ alloc_nod(filesystem *fs)
 	return fs->sb.s_inodes_per_group*best_group+nod;
 }
 
+#if 0
 // print a bitmap allocation
 static void
 print_bm(block b, uint32 max)
@@ -947,6 +956,7 @@ print_bm(block b, uint32 max)
 	if((i-1) % 100)
 		printf("\n");
 }
+#endif
 
 // initalize a blockwalker (iterator for blocks list)
 static inline void
@@ -965,7 +975,7 @@ init_bw(blockwalker *bw)
 //				  in fact, don't do that, just use extend_blk
 // if hole!=0, create a hole in the file
 static uint32
-walk_bw(filesystem *fs, uint32 nod, blockwalker *bw, int32 *create, uint32 hole)
+walk_bw(filesystem *fs, ext2_ino_t nod, blockwalker *bw, int32 *create, uint32 hole)
 {
 	uint32 *bkref = 0;
 	uint32 *b;
@@ -1197,7 +1207,7 @@ walk_bw(filesystem *fs, uint32 nod, blockwalker *bw, int32 *create, uint32 hole)
 
 // add blocks to an inode (file/dir/etc...)
 static void
-extend_blk(filesystem *fs, uint32 nod, block b, int amount)
+extend_blk(filesystem *fs, ext2_ino_t nod, block b, int amount)
 {
 	int create = amount;
 	blockwalker bw, lbw;
@@ -1240,7 +1250,7 @@ extend_blk(filesystem *fs, uint32 nod, block b, int amount)
 
 // link an entry (inode #) to a directory
 static void
-add2dir(filesystem *fs, uint32 dnod, uint32 nod, const char* name)
+add2dir(filesystem *fs, ext2_ino_t dnod, ext2_ino_t nod, const char* name)
 {
 	blockwalker bw;
 	uint32 bk;
@@ -1311,8 +1321,8 @@ add2dir(filesystem *fs, uint32 dnod, uint32 nod, const char* name)
 }
 
 // find an entry in a directory
-static uint32
-find_dir(filesystem *fs, uint32 nod, const char * name)
+static ext2_ino_t
+find_dir(filesystem *fs, ext2_ino_t nod, const char * name)
 {
 	blockwalker bw;
 	uint32 bk;
@@ -1331,8 +1341,8 @@ find_dir(filesystem *fs, uint32 nod, const char * name)
 }
 
 // find the inode of a full path
-static uint32
-find_path(filesystem *fs, uint32 nod, const char * name)
+static ext2_ino_t
+find_path(filesystem *fs, ext2_ino_t nod, const char * name)
 {
 	char *p, *n, *n2 = xstrdup(name);
 	n = n2;
@@ -1357,10 +1367,10 @@ find_path(filesystem *fs, uint32 nod, const char * name)
 }
 
 // create a simple inode
-static uint32
-mknod_fs(filesystem *fs, uint32 parent_nod, const char *name, uint16 mode, uint16 uid, uint16 gid, uint8 major, uint8 minor, uint32 ctime, uint32 mtime)
+static ext2_ino_t
+mknod_fs(filesystem *fs, ext2_ino_t parent_nod, const char *name, uint16 mode, uint16 uid, uint16 gid, uint8 major, uint8 minor, uint32 ctime, uint32 mtime)
 {
-	uint32 nod;
+	ext2_ino_t nod;
 	inode *node;
 	if((nod = find_dir(fs, parent_nod, name)))
 	{
@@ -1401,17 +1411,49 @@ mknod_fs(filesystem *fs, uint32 parent_nod, const char *name, uint16 mode, uint1
 }
 
 // make a full-fledged directory (i.e. with "." & "..")
-static inline uint32
-mkdir_fs(filesystem *fs, uint32 parent_nod, const char *name, uint32 mode,
+static inline ext2_ino_t
+mkdir_fs(filesystem *fs, ext2_ino_t parent_nod, const char *name, uint32 mode,
 	uid_t uid, gid_t gid, uint32 ctime, uint32 mtime)
 {
 	return mknod_fs(fs, parent_nod, name, mode|FM_IFDIR, uid, gid, 0, 0, ctime, mtime);
 }
 
 // make a symlink
-static uint32
-mklink_fs(filesystem *fs, uint32 parent_nod, const char *name, size_t size, uint8 *b, uid_t uid, gid_t gid, uint32 ctime, uint32 mtime)
+static ext2_ino_t
+mklink_fs(filesystem *e2fs, ext2_ino_t parent_nod, const char *destname, size_t sourcelen, uint8 *sourcename, uid_t uid, gid_t gid, uint32 ctime, uint32 mtime)
 {
+	int rt;
+	size_t wr;
+	ext2_file_t efile;
+
+	debugf("enter");
+	debugf("source: %s, dest: %s", sourcename, destname);
+
+	/* a short symlink is stored in the inode (recycling the i_block array) */
+	if (sourcelen < (EXT2_N_BLOCKS * sizeof(__u32))) {
+		rt = do_create(e2fs, destname, LINUX_S_IFLNK | 0777, 0, sourcename);
+		if (rt != 0)
+			perror_msg_and_die("do_create(%s, LINUX_S_IFLNK | 0777, FAST); failed", destname);
+	} else {
+		rt = do_create(e2fs, destname, LINUX_S_IFLNK | 0777, 0, NULL);
+		if (rt != 0)
+			perror_msg_and_die("do_create(%s, LINUX_S_IFLNK | 0777); failed", destname);
+		efile = do_open(e2fs, destname, O_WRONLY);
+		if (efile == NULL)
+			perror_msg_and_die("do_open(%s); failed", destname);
+		wr = do_write(efile, sourcename, sourcelen, 0);
+		if (wr != strlen(sourcename))
+			perror_msg_and_die("do_write(efile, %s, %d, 0); failed", sourcename, strlen(sourcename) + 1);
+		rt = do_release(efile);
+		if (rt != 0)
+			perror_msg_and_die("do_release(efile); failed");
+	}
+	debugf("leave");
+	return 0;
+
+// TODO set all attributes, uid/gid and ctime/mtime
+
+#if 0
 	uint32 nod = mknod_fs(fs, parent_nod, name, FM_IFLNK | FM_IRWXU | FM_IRWXG | FM_IRWXO, uid, gid, 0, 0, ctime, mtime);
 	extend_blk(fs, nod, 0, - (int)get_nod(fs, nod)->i_blocks / INOBLK);
 	get_nod(fs, nod)->i_size = size;
@@ -1422,14 +1464,15 @@ mklink_fs(filesystem *fs, uint32 parent_nod, const char *name, size_t size, uint
 	}
 	extend_blk(fs, nod, b, rndup(size, BLOCKSIZE) / BLOCKSIZE);
 	return nod;
+#endif
 }
 
 // make a file from a FILE*
-static uint32
-mkfile_fs(filesystem *fs, uint32 parent_nod, const char *name, uint32 mode, size_t size, FILE *f, uid_t uid, gid_t gid, uint32 ctime, uint32 mtime)
+static ext2_ino_t
+mkfile_fs(filesystem *fs, ext2_ino_t parent_nod, const char *name, uint32 mode, size_t size, FILE *f, uid_t uid, gid_t gid, uint32 ctime, uint32 mtime)
 {
 	uint8 * b;
-	uint32 nod = mknod_fs(fs, parent_nod, name, mode|FM_IFREG, uid, gid, 0, 0, ctime, mtime);
+	ext2_ino_t nod = mknod_fs(fs, parent_nod, name, mode|FM_IFREG, uid, gid, 0, 0, ctime, mtime);
 	extend_blk(fs, nod, 0, - (int)get_nod(fs, nod)->i_blocks / INOBLK);
 	get_nod(fs, nod)->i_size = size;
 	if (size) {
@@ -1496,11 +1539,12 @@ get_mode(struct stat *st)
 */
 
 static void
-add2fs_from_file(filesystem *fs, uint32 this_nod, FILE * fh, uint32 fs_timestamp, struct stats *stats)
+add2fs_from_file(filesystem *fs, ext2_ino_t this_nod, FILE * fh, uint32 fs_timestamp, struct stats *stats)
 {
 	unsigned long mode, uid, gid, major, minor;
 	unsigned long start, increment, count;
-	uint32 nod, ctime, mtime;
+	ext2_ino_t nod;
+	uint32 ctime, mtime;
 	char *c, type, *path = NULL, *path2 = NULL, *dir, *name, *line = NULL;
 	size_t len;
 	struct stat st;
@@ -1610,9 +1654,9 @@ add2fs_from_file(filesystem *fs, uint32 this_nod, FILE * fh, uint32 fs_timestamp
 
 // adds a tree of entries to the filesystem from current dir
 static void
-add2fs_from_dir(filesystem *fs, uint32 this_nod, int squash_uids, int squash_perms, uint32 fs_timestamp, struct stats *stats)
+add2fs_from_dir(filesystem *fs, ext2_ino_t this_nod, int squash_uids, int squash_perms, uint32 fs_timestamp, struct stats *stats)
 {
-	uint32 nod;
+	ext2_ino_t nod;
 	uint32 uid, gid, mode, ctime, mtime;
 	const char *name;
 	FILE *fh;
@@ -1620,7 +1664,7 @@ add2fs_from_dir(filesystem *fs, uint32 this_nod, int squash_uids, int squash_per
 	struct dirent *dent;
 	struct stat st;
 	char *lnk;
-	uint32 save_nod;
+	ext2_ino_t save_nod;
 
 	if(!(dh = opendir(".")))
 		perror_msg_and_die(".");
@@ -1729,6 +1773,7 @@ add2fs_from_dir(filesystem *fs, uint32 this_nod, int squash_uids, int squash_per
 	closedir(dh);
 }
 
+#if 0
 // endianness swap of x-indirect blocks
 static void
 swap_goodblocks(filesystem *fs, inode *nod)
@@ -1786,7 +1831,9 @@ swap_goodblocks(filesystem *fs, inode *nod)
 	swap_block((uint8 *)b);
 	return;
 }
+#endif
 
+#if 0
 static void
 swap_badblocks(filesystem *fs, inode *nod)
 {
@@ -1831,7 +1878,9 @@ swap_badblocks(filesystem *fs, inode *nod)
 	}
 	return;
 }
+#endif
 
+#if 0
 // endianness swap of the whole filesystem
 static void
 swap_goodfs(filesystem *fs)
@@ -1861,7 +1910,9 @@ swap_goodfs(filesystem *fs)
 		swap_gd(&(fs->gd[i]));
 	swap_sb(&fs->sb);
 }
+#endif
 
+#if 0
 static void
 swap_badfs(filesystem *fs)
 {
@@ -2061,39 +2112,50 @@ init_fs(int nbblocks, int nbinodes, int nbresrvd, int holes, uint32 fs_timestamp
 	
 	return fs;
 }
+#endif
 
 // loads a filesystem from disk
-static filesystem *
-load_fs(FILE * fh, int swapit)
+static ext2_filsys
+load_fs(const char *device, int readonly)
 {
-	size_t fssize;
-	filesystem *fs;
-	if((fseek(fh, 0, SEEK_END) < 0) || ((ssize_t)(fssize = ftell(fh)) == -1))
-		perror_msg_and_die("input filesystem image");
-	rewind(fh);
-	fssize = (fssize + BLOCKSIZE - 1) / BLOCKSIZE;
-	if(fssize < 16) // totally arbitrary
-		error_msg_and_die("too small filesystem");
-	if(!(fs = (filesystem*)calloc(fssize, BLOCKSIZE)))
-		error_msg_and_die("not enough memory for filesystem");
-	if(fread(fs, BLOCKSIZE, fssize, fh) != fssize)
-		perror_msg_and_die("input filesystem image");
-	if(swapit)
-		swap_badfs(fs);
-	if(fs->sb.s_rev_level || (fs->sb.s_magic != EXT2_MAGIC_NUMBER))
-		error_msg_and_die("not a suitable ext2 filesystem");
-	return fs;
+	errcode_t rc;
+	ext2_filsys e2fs = NULL;
+
+	rc = ext2fs_open(device, 
+			readonly ? 0 : EXT2_FLAG_RW,
+			0, 0, unix_io_manager, &e2fs);
+	if (rc) {
+		debugf("Error while trying to open %s", device);
+		perror_msg_and_die("error opening filesystem image");
+	}
+	if (readonly != 1)
+		rc = ext2fs_read_bitmaps(e2fs);
+	if (rc) {
+		ext2fs_close(e2fs);
+		perror_msg_and_die("Error while reading bitmaps");
+	}
+	debugf("FileSystem %s", (e2fs->flags & EXT2_FLAG_RW) ? "Read&Write" : "ReadOnly");
+
+	debugf("leave");
+
+	return e2fs;
 }
 
 static void
-free_fs(filesystem *fs)
+free_fs(filesystem *e2fs)
 {
-	free(fs);
+	errcode_t rc;
+
+	debugf("enter");
+	rc = ext2fs_close(e2fs);
+	if (rc) {
+		perror_msg_and_die("Error while trying to close ext2 filesystem");
+	}
 }
 
 // just walk through blocks list
 static void
-flist_blocks(filesystem *fs, uint32 nod, FILE *fh)
+flist_blocks(filesystem *fs, ext2_ino_t nod, FILE *fh)
 {
 	blockwalker bw;
 	uint32 bk;
@@ -2103,9 +2165,10 @@ flist_blocks(filesystem *fs, uint32 nod, FILE *fh)
 	fprintf(fh, "\n");
 }
 
+#if 0
 // walk through blocks list
 static void
-list_blocks(filesystem *fs, uint32 nod)
+list_blocks(filesystem *fs, ext2_ino_t nod)
 {
 	int bn = 0;
 	blockwalker bw;
@@ -2116,10 +2179,11 @@ list_blocks(filesystem *fs, uint32 nod)
 		printf(" %d", bk), bn++;
 	printf("\n%d blocks (%d bytes)\n", bn, bn * BLOCKSIZE);
 }
+endif
 
 // saves blocks to FILE*
 static void
-write_blocks(filesystem *fs, uint32 nod, FILE* f)
+write_blocks(filesystem *fs, ext2_ino_t nod, FILE* f)
 {
 	blockwalker bw;
 	uint32 bk;
@@ -2134,11 +2198,12 @@ write_blocks(filesystem *fs, uint32 nod, FILE* f)
 		fsize -= BLOCKSIZE;
 	}
 }
+#endif
 
-
+#if 0
 // print block/char device minor and major
 static void
-print_dev(filesystem *fs, uint32 nod)
+print_dev(filesystem *fs, ext2_ino_t nod)
 {
 	int minor, major;
 	minor = ((uint8*)get_nod(fs, nod)->i_block)[0];
@@ -2148,7 +2213,7 @@ print_dev(filesystem *fs, uint32 nod)
 
 // print an inode as a directory
 static void
-print_dir(filesystem *fs, uint32 nod)
+print_dir(filesystem *fs, ext2_ino_t nod)
 {
 	blockwalker bw;
 	uint32 bk;
@@ -2173,7 +2238,7 @@ print_dir(filesystem *fs, uint32 nod)
 
 // print a symbolic link
 static void
-print_link(filesystem *fs, uint32 nod)
+print_link(filesystem *fs, ext2_ino_t nod)
 {
 	if(!get_nod(fs, nod)->i_blocks)
 		printf("links to '%s'\n", (char*)get_nod(fs, nod)->i_block);
@@ -2184,6 +2249,7 @@ print_link(filesystem *fs, uint32 nod)
 		printf("'\n");
 	}
 }
+#endif
 
 // make a ls-like printout of permissions
 static void
@@ -2245,9 +2311,10 @@ make_perms(uint32 mode, char perms[11])
 	}
 }
 
+#if 0
 // print an inode
 static void
-print_inode(filesystem *fs, uint32 nod)
+print_inode(filesystem *fs, ext2_ino_t nod)
 {
 	char *s;
 	char perms[11];
@@ -2311,7 +2378,9 @@ print_inode(filesystem *fs, uint32 nod)
 	}
 	printf("Done with inode %d\n",nod);
 }
+#endif
 
+#if 0
 // describes various fields in a filesystem
 static void
 print_fs(filesystem *fs)
@@ -2348,7 +2417,9 @@ print_fs(filesystem *fs)
 				print_inode(fs, i);
 	}
 }
+#endif
 
+#if 0
 static void
 dump_fs(filesystem *fs, FILE * fh, int swapit)
 {
@@ -2361,6 +2432,7 @@ dump_fs(filesystem *fs, FILE * fh, int swapit)
 	if(swapit)
 		swap_badfs(fs);
 }
+#endif
 
 static void
 populate_fs(filesystem *fs, char **dopt, int didx, int squash_uids, int squash_perms, uint32 fs_timestamp, struct stats *stats)
@@ -2372,7 +2444,7 @@ populate_fs(filesystem *fs, char **dopt, int didx, int squash_uids, int squash_p
 		FILE *fh;
 		int pdir;
 		char *pdest;
-		uint32 nod = EXT2_ROOT_INO;
+		ext2_ino_t nod = EXT2_ROOT_INO;
 		if(fs)
 			if((pdest = strchr(dopt[i], ':')))
 			{
@@ -2466,7 +2538,7 @@ main(int argc, char **argv)
 	int squash_perms = 0;
 	uint16 endian = 1;
 	int bigendian = !*(char*)&endian;
-	filesystem *fs;
+	ext2_filsys fs;
 	int i;
 	int c;
 	struct stats stats;
@@ -2572,59 +2644,36 @@ main(int argc, char **argv)
 
 	if(fsin)
 	{
-		if(strcmp(fsin, "-"))
-		{
-			FILE * fh = xfopen(fsin, "rb");
-			fs = load_fs(fh, bigendian);
-			fclose(fh);
-		}
-		else
-			fs = load_fs(stdin, bigendian);
+		/* TODO support "-" as standard input */
+		fs = load_fs(fsin, 0);
 	}
 	else
 	{
-		if(reserved_frac == -1)
-			nbresrvd = nbblocks * RESERVED_BLOCKS;
-		else 
-			nbresrvd = nbblocks * reserved_frac;
-
-		stats.ninodes = EXT2_FIRST_INO - 1 + (nbresrvd ? 1 : 0);
-		stats.nblocks = 0;
-
-		populate_fs(NULL, dopt, didx, squash_uids, squash_perms, fs_timestamp, &stats);
-
-		if(nbinodes == -1)
-			nbinodes = stats.ninodes;
-		else
-			if(stats.ninodes > (unsigned long)nbinodes)
-			{
-				fprintf(stderr, "number of inodes too low, increasing to %ld\n", stats.ninodes);
-				nbinodes = stats.ninodes;
-			}
-
-		if(bytes_per_inode != -1) {
-			int tmp_nbinodes = nbblocks * BLOCKSIZE / bytes_per_inode;
-			if(tmp_nbinodes > nbinodes)
-				nbinodes = tmp_nbinodes;
-		}
-		if(fs_timestamp == -1)
-			fs_timestamp = time(NULL);
-		fs = init_fs(nbblocks, nbinodes, nbresrvd, holes, fs_timestamp);
+		/* TODO create filesystem */
+		error_msg_and_die("TODO create filesystem");
 	}
 	
 	populate_fs(fs, dopt, didx, squash_uids, squash_perms, fs_timestamp, NULL);
 
+	/* TODO clear unused space */
+#if 0
 	if(emptyval) {
 		uint32 b;
 		for(b = 1; b < fs->sb.s_blocks_count; b++)
 			if(!allocated(GRP_GET_BLOCK_BITMAP(fs,b),GRP_BBM_OFFSET(fs,b)))
 				memset(get_blk(fs, b), emptyval, BLOCKSIZE);
 	}
+#endif
+
+	// TODO print some information
+#if 0
 	if(verbose)
 		print_fs(fs);
+#endif
+
 	for(i = 0; i < gidx; i++)
 	{
-		uint32 nod;
+		ext2_ino_t nod;
 		char fname[MAX_FILENAME];
 		char *p;
 		FILE *fh;
@@ -2638,6 +2687,9 @@ main(int argc, char **argv)
 		flist_blocks(fs, nod, fh);
 		fclose(fh);
 	}
+
+	// TODO write to another file
+#if 0
 	if(strcmp(fsout, "-"))
 	{
 		FILE * fh = xfopen(fsout, "wb");
@@ -2646,6 +2698,7 @@ main(int argc, char **argv)
 	}
 	else
 		dump_fs(fs, stdout, bigendian);
+#endif
 	free_fs(fs);
 	return 0;
 }
