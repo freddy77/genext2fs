@@ -417,19 +417,6 @@ SI_atof(const char *nptr)
 
 // endianness swap
 
-static inline uint16
-swab16(uint16 val)
-{
-	return (val >> 8) | (val << 8);
-}
-
-static inline uint32
-swab32(uint32 val)
-{
-	return ((val>>24) | ((val>>8)&0xFF00) |
-			((val<<8)&0xFF0000) | (val<<24));
-}
-
 
 // on-disk structures
 // this trick makes me declare things only once
@@ -593,15 +580,6 @@ typedef struct struct_ext2_filsys filesystem;
 #undef udecl16
 #undef decl32
 #undef udecl32
-#undef utdecl32
-
-#define decl8(x)
-#define udecl8(x)
-#define decl16(x) this->x = swab16(this->x);
-#define udecl16(x) this->x = swab16(this->x);
-#define decl32(x) this->x = swab32(this->x);
-#define udecl32(x) this->x = swab32(this->x);
-#define utdecl32(x,n) { int i; for(i=0; i<n; i++) this->x[i] = swab32(this->x[i]); }
 
 #define HDLINK_CNT   16
 static int32 hdlink_cnt = HDLINK_CNT;
@@ -618,65 +596,6 @@ struct hdlinks_s
 };
 
 static struct hdlinks_s hdlinks;
-
-#if 0
-static void
-swap_sb(superblock *sb)
-{
-#define this sb
-	superblock_decl
-#undef this
-}
-#endif
-
-#if 0
-static void
-swap_gd(groupdescriptor *gd)
-{
-#define this gd
-	groupdescriptor_decl
-#undef this
-}
-#endif
-
-#if 0
-static void
-swap_nod(inode *nod)
-{
-#define this nod
-	inode_decl
-#undef this
-}
-#endif
-
-#if 0
-static void
-swap_dir(directory *dir)
-{
-#define this dir
-	directory_decl
-#undef this
-}
-#endif
-
-#if 0
-static void
-swap_block(block b)
-{
-	int i;
-	uint32 *blk = (uint32*)b;
-	for(i = 0; i < BLOCKSIZE/4; i++)
-		blk[i] = swab32(blk[i]);
-}
-#endif
-
-#undef decl8
-#undef udecl8
-#undef decl16
-#undef udecl16
-#undef decl32
-#undef udecl32
-#undef utdecl32
 
 static char * app_name;
 static const char *const memory_exhausted = "memory exhausted";
@@ -1931,174 +1850,6 @@ add2fs_from_dir(filesystem *fs, ext2_ino_t this_nod, int squash_uids, int squash
 }
 
 #if 0
-// endianness swap of x-indirect blocks
-static void
-swap_goodblocks(filesystem *fs, inode *nod)
-{
-	uint32 i,j;
-	int done=0;
-	uint32 *b,*b2;
-
-	uint32 nblk = nod->i_blocks / INOBLK;
-	if((nod->i_size && !nblk) || ((nod->i_mode & FM_IFBLK) == FM_IFBLK) || ((nod->i_mode & FM_IFCHR) == FM_IFCHR))
-		for(i = 0; i <= EXT2_TIND_BLOCK; i++)
-			nod->i_block[i] = swab32(nod->i_block[i]);
-	if(nblk <= EXT2_IND_BLOCK)
-		return;
-	swap_block(get_blk(fs, nod->i_block[EXT2_IND_BLOCK]));
-	if(nblk <= EXT2_DIND_BLOCK + BLOCKSIZE/4)
-		return;
-	/* Currently this will fail b'cos the number of blocks as stored
-	   in i_blocks also includes the indirection blocks (see
-	   walk_bw). But this function assumes that i_blocks only
-	   stores the count of data blocks ( Actually according to
-	   "Understanding the Linux Kernel" (Table 17-3 p502 1st Ed)
-	   i_blocks IS supposed to store the count of data blocks). so
-	   with a file of size 268K nblk would be 269.The above check
-	   will be false even though double indirection hasn't been
-	   started.This is benign as 0 means block 0 which has been
-	   zeroed out and therefore points back to itself from any offset
-	 */
-	// FIXME: I have fixed that, but I have the feeling the rest of
-	// ths function needs to be fixed for the same reasons - Xav
-	assert(nod->i_block[EXT2_DIND_BLOCK] != 0);
-	for(i = 0; i < BLOCKSIZE/4; i++)
-		if(nblk > EXT2_IND_BLOCK + BLOCKSIZE/4 + (BLOCKSIZE/4)*i )
-			swap_block(get_blk(fs, ((uint32*)get_blk(fs, nod->i_block[EXT2_DIND_BLOCK]))[i]));
-	swap_block(get_blk(fs, nod->i_block[EXT2_DIND_BLOCK]));
-	if(nblk <= EXT2_IND_BLOCK + BLOCKSIZE/4 + BLOCKSIZE/4 * BLOCKSIZE/4)
-		return;
-	/* Adding support for triple indirection */
-	b = (uint32*)get_blk(fs,nod->i_block[EXT2_TIND_BLOCK]);
-	for(i=0;i < BLOCKSIZE/4 && !done ; i++) {
-		b2 = (uint32*)get_blk(fs,b[i]); 
-		for(j=0; j<BLOCKSIZE/4;j++) {
-			if (nblk > ( EXT2_IND_BLOCK + BLOCKSIZE/4 + 
-				     (BLOCKSIZE/4)*(BLOCKSIZE/4) + 
-				     i*(BLOCKSIZE/4)*(BLOCKSIZE/4) + 
-				     j*(BLOCKSIZE/4)) ) 
-			  swap_block(get_blk(fs,b2[j]));
-			else {
-			  done = 1;
-			  break;
-			}
-		}
-		swap_block((uint8 *)b2);
-	}
-	swap_block((uint8 *)b);
-	return;
-}
-#endif
-
-#if 0
-static void
-swap_badblocks(filesystem *fs, inode *nod)
-{
-	uint32 i,j;
-	int done=0;
-	uint32 *b,*b2;
-
-	uint32 nblk = nod->i_blocks / INOBLK;
-	if((nod->i_size && !nblk) || ((nod->i_mode & FM_IFBLK) == FM_IFBLK) || ((nod->i_mode & FM_IFCHR) == FM_IFCHR))
-		for(i = 0; i <= EXT2_TIND_BLOCK; i++)
-			nod->i_block[i] = swab32(nod->i_block[i]);
-	if(nblk <= EXT2_IND_BLOCK)
-		return;
-	swap_block(get_blk(fs, nod->i_block[EXT2_IND_BLOCK]));
-	if(nblk <= EXT2_DIND_BLOCK + BLOCKSIZE/4)
-		return;
-	/* See comment in swap_goodblocks */
-	assert(nod->i_block[EXT2_DIND_BLOCK] != 0);
-	swap_block(get_blk(fs, nod->i_block[EXT2_DIND_BLOCK]));
-	for(i = 0; i < BLOCKSIZE/4; i++)
-		if(nblk > EXT2_IND_BLOCK + BLOCKSIZE/4 + (BLOCKSIZE/4)*i )
-			swap_block(get_blk(fs, ((uint32*)get_blk(fs, nod->i_block[EXT2_DIND_BLOCK]))[i]));
-	if(nblk <= EXT2_IND_BLOCK + BLOCKSIZE/4 + BLOCKSIZE/4 * BLOCKSIZE/4)
-		return;
-	/* Adding support for triple indirection */
-	b = (uint32*)get_blk(fs,nod->i_block[EXT2_TIND_BLOCK]);
-	swap_block((uint8 *)b);
-	for(i=0;i < BLOCKSIZE/4 && !done ; i++) {
-		b2 = (uint32*)get_blk(fs,b[i]); 
-		swap_block((uint8 *)b2);
-		for(j=0; j<BLOCKSIZE/4;j++) {
-			if (nblk > ( EXT2_IND_BLOCK + BLOCKSIZE/4 + 
-				     (BLOCKSIZE/4)*(BLOCKSIZE/4) + 
-				     i*(BLOCKSIZE/4)*(BLOCKSIZE/4) + 
-				     j*(BLOCKSIZE/4)) ) 
-			  swap_block(get_blk(fs,b2[j]));
-			else {
-			  done = 1;
-			  break;
-			}
-		}
-	}
-	return;
-}
-#endif
-
-#if 0
-// endianness swap of the whole filesystem
-static void
-swap_goodfs(filesystem *fs)
-{
-	uint32 i;
-	for(i = 1; i < fs->sb.s_inodes_count; i++)
-	{
-		inode *nod = get_nod(fs, i);
-		if(nod->i_mode & FM_IFDIR)
-		{
-			blockwalker bw;
-			uint32 bk;
-			init_bw(&bw);
-			while((bk = walk_bw(fs, i, &bw, 0, 0)) != WALK_END)
-			{
-				directory *d;
-				uint8 *b;
-				b = get_blk(fs, bk);
-				for(d = (directory*)b; (int8*)d + sizeof(*d) < (int8*)b + BLOCKSIZE; d = (directory*)((int8*)d + swab16(d->d_rec_len)))
-					swap_dir(d);
-			}
-		}
-		swap_goodblocks(fs, nod);
-		swap_nod(nod);
-	}
-	for(i=0;i<GRP_NBGROUPS(fs);i++)
-		swap_gd(&(fs->gd[i]));
-	swap_sb(&fs->sb);
-}
-#endif
-
-#if 0
-static void
-swap_badfs(filesystem *fs)
-{
-	uint32 i;
-	swap_sb(&fs->sb);
-	for(i=0;i<GRP_NBGROUPS(fs);i++)
-		swap_gd(&(fs->gd[i]));
-	for(i = 1; i < fs->sb.s_inodes_count; i++)
-	{
-		inode *nod = get_nod(fs, i);
-		swap_nod(nod);
-		swap_badblocks(fs, nod);
-		if(nod->i_mode & FM_IFDIR)
-		{
-			blockwalker bw;
-			uint32 bk;
-			init_bw(&bw);
-			while((bk = walk_bw(fs, i, &bw, 0, 0)) != WALK_END)
-			{
-				directory *d;
-				uint8 *b;
-				b = get_blk(fs, bk);
-				for(d = (directory*)b; (int8*)d + sizeof(*d) < (int8*)b + BLOCKSIZE; d = (directory*)((int8*)d + d->d_rec_len))
-					swap_dir(d);
-			}
-		}
-	}
-}
-
 // initialize an empty filesystem
 static filesystem *
 init_fs(int nbblocks, int nbinodes, int nbresrvd, int holes, uint32 fs_timestamp)
@@ -2574,16 +2325,12 @@ print_fs(filesystem *fs)
 
 #if 0
 static void
-dump_fs(filesystem *fs, FILE * fh, int swapit)
+dump_fs(filesystem *fs, FILE * fh)
 {
 	uint32 nbblocks = fs->sb.s_blocks_count;
 	fs->sb.s_reserved[200] = 0;
-	if(swapit)
-		swap_goodfs(fs);
 	if(fwrite(fs, BLOCKSIZE, nbblocks, fh) < nbblocks)
 		perror_msg_and_die("output filesystem image");
-	if(swapit)
-		swap_badfs(fs);
 }
 #endif
 
@@ -2849,11 +2596,11 @@ main(int argc, char **argv)
 	if(strcmp(fsout, "-"))
 	{
 		FILE * fh = xfopen(fsout, "wb");
-		dump_fs(fs, fh, bigendian);
+		dump_fs(fs, fh);
 		fclose(fh);
 	}
 	else
-		dump_fs(fs, stdout, bigendian);
+		dump_fs(fs, stdout);
 #endif
 	free_fs(fs);
 	return 0;
