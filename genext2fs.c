@@ -167,7 +167,7 @@ struct stats {
    INOBLK is the number of such blocks in an actual disk block            */
 
 #define INODE_BLOCKSIZE   512
-#define INOBLK            (BLOCKSIZE / INODE_BLOCKSIZE)
+#define INOBLK            (fs->blocksize / INODE_BLOCKSIZE)
 
 // reserved inodes
 
@@ -1307,7 +1307,7 @@ ext2_ino_t do_create (ext2_filsys e2fs,
 	const ext2_ino_t ino, /** parent inode */
 	const char *name,
 	mode_t mode,
-	dev_t dev, // TODO use it !! (how ??)
+	dev_t dev,
 	const char *fastsymlink,
 	uid_t uid, gid_t gid,
 	time_t ctime, time_t mtime)
@@ -1544,7 +1544,7 @@ mkfile_fs(filesystem *fs, ext2_ino_t parent_nod, const char *name, uint32 mode, 
 		int rt;
 		size_t wr;
 
-		if(!(b = (uint8*)calloc(rndup(size, BLOCKSIZE), 1)))
+		if(!(b = (uint8*)calloc(rndup(size, fs->blocksize), 1)))
 			error_msg_and_die("not enough mem to read file '%s'", name);
 		if(f)
 			fread(b, size, 1, f); // FIXME: ugly. use mmap() ...
@@ -1767,7 +1767,7 @@ add2fs_from_dir(filesystem *fs, ext2_ino_t this_nod, int squash_uids, int squash
 				case S_IFLNK:
 				case S_IFREG:
 					if((st.st_mode & S_IFMT) == S_IFREG || st.st_size > 4 * (EXT2_TIND_BLOCK+1))
-						stats->nblocks += (st.st_size + BLOCKSIZE - 1) / BLOCKSIZE;
+						stats->nblocks += (st.st_size + fs->blocksize - 1) / fs->blocksize;
 				case S_IFCHR:
 				case S_IFBLK:
 				case S_IFIFO:
@@ -2091,7 +2091,7 @@ list_blocks(filesystem *fs, ext2_ino_t nod)
 {
 	gen_block_data data = { stdout, 0 };
 	ext2fs_block_iterate3(fs, nod, 0, NULL, list_func, &data);
-	printf("\n%d blocks (%d bytes)\n", data.count, data.count * BLOCKSIZE);
+	printf("\n%d blocks (%d bytes)\n", data.count, data.count * fs->blocksize);
 }
 
 #if 0
@@ -2127,47 +2127,30 @@ print_dev(filesystem *fs, ext2_ino_t nod)
 	printf("major: %d, minor: %d\n", major, minor);
 }
 
-#if 0
-
-extern errcode_t
-        ext2fs_dblist_dir_iterate(ext2_dblist dblist,
-                                  int   flags,
-                                  char  *block_buf,
-                                  int (*func)(ext2_ino_t        dir,
-                                              int               entry,
-                                              struct ext2_dir_entry *dirent,
-                                              int       offset,
-                                              int       blocksize,
-                                              char      *buf,
-                                              void      *priv_data),
-                                  void *priv_data);
-
+static int
+dir_iter(ext2_ino_t    dir,
+	int   entry,
+	struct ext2_dir_entry *d,
+	int   offset,
+	int   blocksize,
+	char  *buf,
+	void  *priv_data)
+{
+	int name_len = d->name_len & 255;
+	if (d->inode) {
+		printf("entry '%.*s' (inode %d): rec_len: %d (name_len: %d)\n",
+			name_len, d->name, d->inode, d->rec_len, name_len);
+	}
+	return 0;
+}
 
 // print an inode as a directory
 static void
 print_dir(filesystem *fs, ext2_ino_t nod)
 {
-	blockwalker bw;
-	uint32 bk;
-	init_bw(&bw);
 	printf("directory for inode %d:\n", nod);
-	while((bk = walk_bw(fs, nod, &bw, 0, 0)) != WALK_END)
-	{
-		directory *d;
-		uint8 *b;
-		b = get_blk(fs, bk);
-		for(d = (directory*)b; (int8*)d + sizeof(*d) < (int8*)b + BLOCKSIZE; d = (directory*)((int8*)d + d->d_rec_len))
-			if(d->d_inode)
-			{
-				int i;
-				printf("entry '");
-				for(i = 0; i < d->d_name_len; i++)
-					putchar(d->d_name[i]);
-				printf("' (inode %d): rec_len: %d (name_len: %d)\n", d->d_inode, d->d_rec_len, d->d_name_len);
-			}
-	}
+	ext2fs_dir_iterate2(fs, nod, 0, NULL, dir_iter, NULL);
 }
-#endif
 
 // print a symbolic link
 static void
@@ -2274,10 +2257,11 @@ print_inode(filesystem *fs, ext2_ino_t nod)
 		case EXT2_UNDEL_DIR_INO:
 			s = "undelete directory";
 			break;
-//		default:
-//			s = (nod >= EXT2_FIRST_INO) ? "normal" : "unknown reserved"; 
+		default:
+			s = (nod >= EXT2_FIRST_INO(fs->super)) ? "normal" : "unknown reserved"; 
 	}
 	printf("inode %d (%s, %d links): ", nod, s, inode.i_links_count);
+// TODO ??
 #if 0
 	if(!allocated(GRP_GET_INODE_BITMAP(fs,nod), GRP_IBM_OFFSET(fs,nod)))
 	{
@@ -2303,7 +2287,7 @@ print_inode(filesystem *fs, ext2_ino_t nod)
 			break;
 		case FM_IFDIR:
 			list_blocks(fs, nod);
-// TODO			print_dir(fs, nod);
+			print_dir(fs, nod);
 			break;
 		case FM_IFCHR:
 			print_dev(fs, nod);
@@ -2326,7 +2310,6 @@ get_bmp(struct ext2fs_struct_generic_bitmap *bmap, blk64_t b, uint32 num, uint8_
 	*bmp = (uint8_t *) calloc(1, (num+7)/8);
 	if (!*bmp)
 		perror_msg_and_die("out of memory");
-	memset(*bmp, '\xaa', (num+7)/8); // TODO remove
 	// TODO errors
 	ext2fs_get_block_bitmap_range2(bmap, b+1, num, *bmp);
 }
@@ -2351,7 +2334,7 @@ print_fs(filesystem *fs)
 	     fs->super->s_blocks_per_group, fs->super->s_clusters_per_group,
 	     fs->super->s_inodes_per_group);
 	printf("Size of inode table: %d blocks\n",
-		(int)(fs->super->s_inodes_per_group * sizeof(struct ext2_inode) / BLOCKSIZE));
+		(int)(fs->super->s_inodes_per_group * sizeof(struct ext2_inode) / fs->blocksize));
 	for (i = 0; i < GRP_NBGROUPS(fs); i++) {
 		struct ext2_group_desc *gd = ext2fs_group_desc(fs, fs->group_desc, i);
 		printf("Group No: %d\n", i+1);
