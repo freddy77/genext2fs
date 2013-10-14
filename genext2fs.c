@@ -235,8 +235,8 @@ struct stats {
 
 // Number of groups in the filesystem
 #define GRP_NBGROUPS(fs) \
-	(((fs)->sb.s_blocks_count - fs->sb.s_first_data_block + \
-	  (fs)->sb.s_blocks_per_group - 1) / (fs)->sb.s_blocks_per_group)
+	(((fs)->super->s_blocks_count - fs->super->s_first_data_block + \
+	  (fs)->super->s_blocks_per_group - 1) / (fs)->super->s_blocks_per_group)
 
 // Get group block bitmap (bbm) given the group number
 //#define GRP_GET_GROUP_BBM(fs,grp) ( get_blk((fs),(fs)->gd[(grp)].bg_block_bitmap) )
@@ -757,14 +757,12 @@ rndup(uint32 qty, uint32 siz)
 	return (qty + (siz - 1)) & ~(siz - 1);
 }
 
-#if 0
 // check if something is allocated in the bitmap
 static inline uint32
-allocated(block b, uint32 item)
+allocated(const uint8_t *b, uint32 item)
 {
 	return b[(item-1) / 8] & (1 << ((item-1) % 8));
 }
-#endif
 
 #if 0
 // return a given block from a filesystem
@@ -902,23 +900,21 @@ alloc_nod(filesystem *fs)
 }
 #endif
 
-#if 0
 // print a bitmap allocation
 static void
-print_bm(block b, uint32 max)
+print_bm(uint8_t *bmp, uint32 max)
 {
 	uint32 i;
 	printf("----+----1----+----2----+----3----+----4----+----5----+----6----+----7----+----8----+----9----+----0\n");
 	for(i=1; i <= max; i++)
 	{
-		putchar(allocated(b, i) ? '*' : '.');
+		putchar(allocated(bmp, i) ? '*' : '.');
 		if(!(i % 100))
 			printf("\n");
 	}
 	if((i-1) % 100)
 		printf("\n");
 }
-#endif
 
 #if 0
 // initalize a blockwalker (iterator for blocks list)
@@ -1255,14 +1251,10 @@ find_dir(filesystem *fs, ext2_ino_t nod, const char * name)
 static ext2_ino_t
 find_path(filesystem *fs, ext2_ino_t nod, const char * name)
 {
-	errcode_t rc;
 	ext2_ino_t ino;
+	errcode_t rc;
 
-	// TODO not sure about root/cwd parameters
-//	rc = ext2fs_namei(e2fs, EXT2_ROOT_INO, EXT2_ROOT_INO, path, ino);
-	if (name[0] == '/')
-		nod = EXT2_ROOT_INO;
-	rc = ext2fs_namei(fs, nod, nod, name, &ino);
+	rc = ext2fs_namei(fs, EXT2_ROOT_INO, nod, name, &ino);
 	return rc ? 0 : ino;
 }
 
@@ -1301,6 +1293,14 @@ static inline __u32 new_encode_dev(dev_t dev)
 	unsigned major = major(dev);
 	unsigned minor = minor(dev);
 	return (minor & 0xff) | (major << 8) | ((minor & ~0xff) << 12);
+}
+
+struct ext2_inode*
+get_nod(ext2_filsys e2fs, ext2_ino_t ino, struct ext2_inode* inode)
+{
+	if (ext2fs_read_inode(e2fs, ino, inode))
+		error_msg_and_die("ext2fs_read_inode failed");
+	return inode;
 }
 
 ext2_ino_t do_create (ext2_filsys e2fs, 
@@ -1422,7 +1422,8 @@ mkdir_fs(filesystem *fs, ext2_ino_t parent_nod, const char *name, uint32 mode,
 
 #define EXT2_FILE_SHARED_INODE 0x8000
 
-ext2_file_t do_open (ext2_filsys e2fs, ext2_ino_t ino, int flags)
+static ext2_file_t
+do_open(ext2_filsys e2fs, ext2_ino_t ino, int flags)
 {
 	errcode_t rc;
 	ext2_file_t efile;
@@ -1440,7 +1441,8 @@ ext2_file_t do_open (ext2_filsys e2fs, ext2_ino_t ino, int flags)
 }
 
 // TODO support files bigger then 2/4gb
-static size_t do_write (ext2_file_t efile, const char *buf, size_t size, off_t offset)
+static size_t
+do_write(ext2_file_t efile, const char *buf, size_t size, off_t offset)
 {
 	int rt;
 	const char *tmp;
@@ -1485,7 +1487,7 @@ static size_t do_write (ext2_file_t efile, const char *buf, size_t size, off_t o
 }
 
 static int
-do_release (ext2_file_t efile)
+do_release(ext2_file_t efile)
 {
 	errcode_t rc;
 
@@ -2055,36 +2057,44 @@ free_fs(filesystem *e2fs)
 		perror_msg_and_die("Error while trying to close ext2 filesystem");
 }
 
-#if 0
+typedef struct {
+	FILE *fh;
+	unsigned count;
+} gen_block_data;
+
+static int
+list_func(ext2_filsys fs,
+	blk64_t     *blocknr,
+	e2_blkcnt_t blockcnt,
+	blk64_t     ref_blk,
+	int         ref_offset,
+	void        *priv_data)
+{
+	gen_block_data *data = (gen_block_data *) priv_data;
+	++data->count;
+	fprintf(data->fh, " %lld", (long long) *blocknr);
+	return 0;
+}
+
 // just walk through blocks list
 static void
 flist_blocks(filesystem *fs, ext2_ino_t nod, FILE *fh)
 {
-	blockwalker bw;
-	uint32 bk;
-	init_bw(&bw);
-	while((bk = walk_bw(fs, nod, &bw, 0, 0)) != WALK_END)
-		fprintf(fh, " %d", bk);
+	gen_block_data data = { fh, 0 };
+	ext2fs_block_iterate3(fs, nod, 0, NULL, list_func, &data);
 	fprintf(fh, "\n");
 }
-#endif
 
-#if 0
 // walk through blocks list
 static void
 list_blocks(filesystem *fs, ext2_ino_t nod)
 {
-	int bn = 0;
-	blockwalker bw;
-	uint32 bk;
-	init_bw(&bw);
-	printf("blocks in inode %d:", nod);
-	while((bk = walk_bw(fs, nod, &bw, 0, 0)) != WALK_END)
-		printf(" %d", bk), bn++;
-	printf("\n%d blocks (%d bytes)\n", bn, bn * BLOCKSIZE);
+	gen_block_data data = { stdout, 0 };
+	ext2fs_block_iterate3(fs, nod, 0, NULL, list_func, &data);
+	printf("\n%d blocks (%d bytes)\n", data.count, data.count * BLOCKSIZE);
 }
-endif
 
+#if 0
 // saves blocks to FILE*
 static void
 write_blocks(filesystem *fs, ext2_ino_t nod, FILE* f)
@@ -2104,16 +2114,34 @@ write_blocks(filesystem *fs, ext2_ino_t nod, FILE* f)
 }
 #endif
 
-#if 0
 // print block/char device minor and major
 static void
 print_dev(filesystem *fs, ext2_ino_t nod)
 {
 	int minor, major;
-	minor = ((uint8*)get_nod(fs, nod)->i_block)[0];
-	major = ((uint8*)get_nod(fs, nod)->i_block)[1];
+	struct ext2_inode inode;
+
+	get_nod(fs, nod, &inode);
+	minor = ((uint8*)inode.i_block)[0];
+	major = ((uint8*)inode.i_block)[1];
 	printf("major: %d, minor: %d\n", major, minor);
 }
+
+#if 0
+
+extern errcode_t
+        ext2fs_dblist_dir_iterate(ext2_dblist dblist,
+                                  int   flags,
+                                  char  *block_buf,
+                                  int (*func)(ext2_ino_t        dir,
+                                              int               entry,
+                                              struct ext2_dir_entry *dirent,
+                                              int       offset,
+                                              int       blocksize,
+                                              char      *buf,
+                                              void      *priv_data),
+                                  void *priv_data);
+
 
 // print an inode as a directory
 static void
@@ -2139,21 +2167,24 @@ print_dir(filesystem *fs, ext2_ino_t nod)
 			}
 	}
 }
+#endif
 
 // print a symbolic link
 static void
 print_link(filesystem *fs, ext2_ino_t nod)
 {
-	if(!get_nod(fs, nod)->i_blocks)
-		printf("links to '%s'\n", (char*)get_nod(fs, nod)->i_block);
+	struct ext2_inode inode;
+
+	get_nod(fs, nod, &inode);
+	if(!inode.i_blocks)
+		printf("links to '%s'\n", (char*)inode.i_block);
 	else
 	{
 		printf("links to '");
-		write_blocks(fs, nod, stdout);
+// TODO		write_blocks(fs, nod, stdout);
 		printf("'\n");
 	}
 }
-#endif
 
 // make a ls-like printout of permissions
 static void
@@ -2215,14 +2246,15 @@ make_perms(uint32 mode, char perms[11])
 	}
 }
 
-#if 0
+#if 1
 // print an inode
 static void
 print_inode(filesystem *fs, ext2_ino_t nod)
 {
 	char *s;
 	char perms[11];
-	if(!get_nod(fs, nod)->i_mode)
+	struct ext2_inode inode;
+	if(!get_nod(fs, nod, &inode)->i_mode)
 		return;
 	switch(nod)
 	{
@@ -2242,18 +2274,20 @@ print_inode(filesystem *fs, ext2_ino_t nod)
 		case EXT2_UNDEL_DIR_INO:
 			s = "undelete directory";
 			break;
-		default:
-			s = (nod >= EXT2_FIRST_INO) ? "normal" : "unknown reserved"; 
+//		default:
+//			s = (nod >= EXT2_FIRST_INO) ? "normal" : "unknown reserved"; 
 	}
-	printf("inode %d (%s, %d links): ", nod, s, get_nod(fs, nod)->i_links_count);
+	printf("inode %d (%s, %d links): ", nod, s, inode.i_links_count);
+#if 0
 	if(!allocated(GRP_GET_INODE_BITMAP(fs,nod), GRP_IBM_OFFSET(fs,nod)))
 	{
 		printf("unallocated\n");
 		return;
 	}
-	make_perms(get_nod(fs, nod)->i_mode, perms);
-	printf("%s,  size: %d byte%s (%d block%s)\n", perms, plural(get_nod(fs, nod)->i_size), plural(get_nod(fs, nod)->i_blocks / INOBLK));
-	switch(get_nod(fs, nod)->i_mode & FM_IFMT)
+#endif
+	make_perms(inode.i_mode, perms);
+	printf("%s,  size: %d byte%s (%d block%s)\n", perms, plural(inode.i_size), plural(inode.i_blocks / INOBLK));
+	switch(inode.i_mode & FM_IFMT)
 	{
 		case FM_IFSOCK:
 			list_blocks(fs, nod);
@@ -2269,7 +2303,7 @@ print_inode(filesystem *fs, ext2_ino_t nod)
 			break;
 		case FM_IFDIR:
 			list_blocks(fs, nod);
-			print_dir(fs, nod);
+// TODO			print_dir(fs, nod);
 			break;
 		case FM_IFCHR:
 			print_dev(fs, nod);
@@ -2284,44 +2318,58 @@ print_inode(filesystem *fs, ext2_ino_t nod)
 }
 #endif
 
-#if 0
+static void
+get_bmp(struct ext2fs_struct_generic_bitmap *bmap, blk64_t b, uint32 num, uint8_t **bmp)
+{
+	uint32 i;
+	free(*bmp);
+	*bmp = (uint8_t *) calloc(1, (num+7)/8);
+	if (!*bmp)
+		perror_msg_and_die("out of memory");
+	memset(*bmp, '\xaa', (num+7)/8); // TODO remove
+	// TODO errors
+	ext2fs_get_block_bitmap_range2(bmap, b+1, num, *bmp);
+}
+
 // describes various fields in a filesystem
 static void
 print_fs(filesystem *fs)
 {
-	uint32 i;
-	uint8 *ibm;
+	uint32_t i;
+	uint8_t *bmp = NULL;;
 
 	printf("%d blocks (%d free, %d reserved), first data block: %d\n",
-	       fs->sb.s_blocks_count, fs->sb.s_free_blocks_count,
-	       fs->sb.s_r_blocks_count, fs->sb.s_first_data_block);
-	printf("%d inodes (%d free)\n", fs->sb.s_inodes_count,
-	       fs->sb.s_free_inodes_count);
+	       fs->super->s_blocks_count, fs->super->s_free_blocks_count,
+	       fs->super->s_r_blocks_count, fs->super->s_first_data_block);
+	printf("%d inodes (%d free)\n", fs->super->s_inodes_count,
+	       fs->super->s_free_inodes_count);
 	printf("block size = %d, frag size = %d\n",
-	       fs->sb.s_log_block_size ? (fs->sb.s_log_block_size << 11) : 1024,
-	       fs->sb.s_log_frag_size ? (fs->sb.s_log_frag_size << 11) : 1024);
+	       fs->super->s_log_block_size ? (fs->super->s_log_block_size << 11) : 1024,
+	       fs->super->s_log_cluster_size ? (fs->super->s_log_cluster_size << 11) : 1024);
 	printf("number of groups: %d\n",GRP_NBGROUPS(fs));
 	printf("%d blocks per group,%d frags per group,%d inodes per group\n",
-	     fs->sb.s_blocks_per_group, fs->sb.s_frags_per_group,
-	     fs->sb.s_inodes_per_group);
+	     fs->super->s_blocks_per_group, fs->super->s_clusters_per_group,
+	     fs->super->s_inodes_per_group);
 	printf("Size of inode table: %d blocks\n",
-		(int)(fs->sb.s_inodes_per_group * sizeof(inode) / BLOCKSIZE));
+		(int)(fs->super->s_inodes_per_group * sizeof(struct ext2_inode) / BLOCKSIZE));
 	for (i = 0; i < GRP_NBGROUPS(fs); i++) {
+		struct ext2_group_desc *gd = ext2fs_group_desc(fs, fs->group_desc, i);
 		printf("Group No: %d\n", i+1);
 		printf("block bitmap: block %d,inode bitmap: block %d, inode table: block %d\n",
-		     fs->gd[i].bg_block_bitmap, fs->gd[i].bg_inode_bitmap,
-		     fs->gd[i].bg_inode_table);
+		     gd[i].bg_block_bitmap, gd[i].bg_inode_bitmap,
+		     gd[i].bg_inode_table);
 		printf("block bitmap allocation:\n");
-		print_bm(GRP_GET_GROUP_BBM(fs, i),fs->sb.s_blocks_per_group);
+		get_bmp(fs->block_map, i * fs->super->s_blocks_per_group, fs->super->s_blocks_per_group, &bmp);
+		print_bm(bmp, fs->super->s_blocks_per_group);
 		printf("inode bitmap allocation:\n");
-		ibm = GRP_GET_GROUP_IBM(fs, i);
-		print_bm(ibm, fs->sb.s_inodes_per_group);
-		for (i = 1; i <= fs->sb.s_inodes_per_group; i++)
-			if (allocated(ibm, i))
+		get_bmp(fs->inode_map, i * fs->super->s_inodes_per_group, fs->super->s_inodes_per_group, &bmp);
+		print_bm(bmp, fs->super->s_inodes_per_group);
+		for (i = 1; i <= fs->super->s_inodes_per_group; i++)
+			if (allocated(bmp, i))
 				print_inode(fs, i);
 	}
+	free(bmp);
 }
-#endif
 
 #if 0
 static void
@@ -2558,24 +2606,23 @@ main(int argc, char **argv)
 	/* TODO clear unused space */
 #if 0
 	if(emptyval) {
-		uint32 b;
-		for(b = 1; b < fs->sb.s_blocks_count; b++)
-			if(!allocated(GRP_GET_BLOCK_BITMAP(fs,b),GRP_BBM_OFFSET(fs,b)))
-				memset(get_blk(fs, b), emptyval, BLOCKSIZE);
+		blk64_t b, count = ext2fs_blocks_count(fs->super);
+		for(b = 0; b < count; b++) {
+			blk64_t prev = b;
+			if (!ext2fs_get_free_blocks2(fs, b, 0, 1, 0, &b) || b < prev)
+				break;
+			memset(get_blk(fs, b), emptyval, BLOCKSIZE);
+		}
 	}
 #endif
 
-	// TODO print some information
-#if 0
 	if(verbose)
 		print_fs(fs);
-#endif
 
-	// TODO support g option
-#if 0
 	for(i = 0; i < gidx; i++)
 	{
 		ext2_ino_t nod;
+		struct ext2_inode inode;
 		char fname[MAX_FILENAME];
 		char *p;
 		FILE *fh;
@@ -2585,11 +2632,10 @@ main(int argc, char **argv)
 			*p = '_';
 		SNPRINTF(fname, MAX_FILENAME-1, "%s.blk", gopt[i]);
 		fh = xfopen(fname, "wb");
-		fprintf(fh, "%d:", get_nod(fs, nod)->i_size);
+		fprintf(fh, "%lld:", (long long) EXT2_I_SIZE(get_nod(fs, nod, &inode)));
 		flist_blocks(fs, nod, fh);
 		fclose(fh);
 	}
-#endif
 
 	// TODO write to another file
 #if 0
