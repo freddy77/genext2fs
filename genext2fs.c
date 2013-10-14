@@ -1471,49 +1471,26 @@ ext2_ino_t do_create (ext2_filsys e2fs,
 static ext2_ino_t
 mknod_fs(filesystem *fs, ext2_ino_t parent_nod, const char *name, uint16 mode, uid_t uid, gid_t gid, uint8 major, uint8 minor, uint32 ctime, uint32 mtime)
 {
-	// TODO what happen if already exists ?? see test below
-	return do_create(fs, parent_nod, name, mode, makedev(major, minor), NULL, uid, gid, ctime, mtime);
+	ext2_ino_t nod = find_dir(fs, parent_nod, name);
 
-#if 0
-	ext2_ino_t nod;
-	inode *node;
-	if((nod = find_dir(fs, parent_nod, name)))
-	{
-		node = get_nod(fs, nod);
-		if((node->i_mode & FM_IFMT) != (mode & FM_IFMT))
+	if (nod != 0) 	{
+		struct ext2_inode inode;
+		if (ext2fs_read_inode(fs, nod, &inode))
+			error_msg_and_die("ext2fs_read_inode failed");
+		if ((inode.i_mode & FM_IFMT) != (mode & FM_IFMT))
 			error_msg_and_die("node '%s' already exists and isn't of the same type", name);
-		node->i_mode = mode;
+		inode.i_mode = mode;
+		inode.i_uid = uid;
+		inode.i_gid = gid;
+		inode.i_atime = mtime;
+		inode.i_ctime = ctime;
+		inode.i_mtime = mtime;
+		if (ext2fs_write_inode(fs, nod, &inode))
+			error_msg_and_die("ext2fs_write_inode failed");
+	} else {
+		nod = do_create(fs, parent_nod, name, mode, makedev(major, minor), NULL, uid, gid, ctime, mtime);
 	}
-	else
-	{
-		nod = alloc_nod(fs);
-		node = get_nod(fs, nod);
-		node->i_mode = mode;
-		add2dir(fs, parent_nod, nod, name);
-		switch(mode & FM_IFMT)
-		{
-			case FM_IFLNK:
-				mode = FM_IFLNK | FM_IRWXU | FM_IRWXG | FM_IRWXO;
-				break;
-			case FM_IFBLK:
-			case FM_IFCHR:
-				((uint8*)get_nod(fs, nod)->i_block)[0] = minor;
-				((uint8*)get_nod(fs, nod)->i_block)[1] = major;
-				break;
-			case FM_IFDIR:
-				add2dir(fs, nod, nod, ".");
-				add2dir(fs, nod, parent_nod, "..");
-				fs->gd[GRP_GROUP_OF_INODE(fs,nod)].bg_used_dirs_count++;
-				break;
-		}
-	}
-	node->i_uid = uid;
-	node->i_gid = gid;
-	node->i_atime = mtime;
-	node->i_ctime = ctime;
-	node->i_mtime = mtime;
 	return nod;
-#endif
 }
 
 // make a full-fledged directory (i.e. with "." & "..")
