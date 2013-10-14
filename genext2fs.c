@@ -146,7 +146,7 @@
 
 #include <ext2fs/ext2fs.h>
 
-#define debugf printf
+#define debugf(args...) do { printf("line %d:", __LINE__); printf(args) ; printf("\n"); } while(0)
 
 struct stats {
 	unsigned long nblocks;
@@ -188,10 +188,8 @@ struct stats {
 
 // direct/indirect block addresses
 
-#define EXT2_NDIR_BLOCKS   11                    // direct blocks
-#define EXT2_IND_BLOCK     12                    // indirect block
-#define EXT2_DIND_BLOCK    13                    // double indirect block
-#define EXT2_TIND_BLOCK    14                    // triple indirect block
+// TODO this is different from ext2lib (actually not used)
+//#define EXT2_NDIR_BLOCKS   11                    // direct blocks
 #define EXT2_INIT_BLOCK    0xFFFFFFFF            // just initialized (not really a block address)
 
 // end of a block walk
@@ -243,10 +241,10 @@ struct stats {
 	  (fs)->sb.s_blocks_per_group - 1) / (fs)->sb.s_blocks_per_group)
 
 // Get group block bitmap (bbm) given the group number
-#define GRP_GET_GROUP_BBM(fs,grp) ( get_blk((fs),(fs)->gd[(grp)].bg_block_bitmap) )
+//#define GRP_GET_GROUP_BBM(fs,grp) ( get_blk((fs),(fs)->gd[(grp)].bg_block_bitmap) )
 
 // Get group inode bitmap (ibm) given the group number
-#define GRP_GET_GROUP_IBM(fs,grp) ( get_blk((fs),(fs)->gd[(grp)].bg_inode_bitmap) )
+//#define GRP_GET_GROUP_IBM(fs,grp) ( get_blk((fs),(fs)->gd[(grp)].bg_inode_bitmap) )
 		
 // Given an inode number find the group it belongs to
 #define GRP_GROUP_OF_INODE(fs,nod) ( ((nod)-1) / (fs)->sb.s_inodes_per_group)
@@ -510,6 +508,7 @@ swab32(uint32 val)
 #define udecl32(x) uint32 x;
 #define utdecl32(x,n) uint32 x[n];
 
+#if 0
 typedef struct
 {
 	superblock_decl
@@ -535,6 +534,7 @@ typedef struct
 } directory;
 
 typedef uint8 block[BLOCKSIZE];
+#endif
 
 /* blockwalker fields:
    The blockwalker is used to access all the blocks of a file (including
@@ -621,6 +621,7 @@ struct hdlinks_s
 
 static struct hdlinks_s hdlinks;
 
+#if 0
 static void
 swap_sb(superblock *sb)
 {
@@ -628,7 +629,9 @@ swap_sb(superblock *sb)
 	superblock_decl
 #undef this
 }
+#endif
 
+#if 0
 static void
 swap_gd(groupdescriptor *gd)
 {
@@ -636,7 +639,9 @@ swap_gd(groupdescriptor *gd)
 	groupdescriptor_decl
 #undef this
 }
+#endif
 
+#if 0
 static void
 swap_nod(inode *nod)
 {
@@ -644,7 +649,9 @@ swap_nod(inode *nod)
 	inode_decl
 #undef this
 }
+#endif
 
+#if 0
 static void
 swap_dir(directory *dir)
 {
@@ -652,7 +659,9 @@ swap_dir(directory *dir)
 	directory_decl
 #undef this
 }
+#endif
 
+#if 0
 static void
 swap_block(block b)
 {
@@ -661,6 +670,7 @@ swap_block(block b)
 	for(i = 0; i < BLOCKSIZE/4; i++)
 		blk[i] = swab32(blk[i]);
 }
+#endif
 
 #undef decl8
 #undef udecl8
@@ -791,6 +801,7 @@ is_hardlink(ino_t inode)
 // printf helper macro
 #define plural(a) (a), ((a) > 1) ? "s" : ""
 
+#if 0
 // temporary working block
 static inline uint8 *
 get_workblk(void)
@@ -798,11 +809,15 @@ get_workblk(void)
 	unsigned char* b=calloc(1,BLOCKSIZE);
 	return b;
 }
+#endif
+
+#if 0
 static inline void
 free_workblk(block b)
 {
 	free(b);
 }
+#endif
 
 /* Rounds qty upto a multiple of siz. siz should be a power of 2 */
 static inline uint32
@@ -811,20 +826,25 @@ rndup(uint32 qty, uint32 siz)
 	return (qty + (siz - 1)) & ~(siz - 1);
 }
 
+#if 0
 // check if something is allocated in the bitmap
 static inline uint32
 allocated(block b, uint32 item)
 {
 	return b[(item-1) / 8] & (1 << ((item-1) % 8));
 }
+#endif
 
+#if 0
 // return a given block from a filesystem
 static inline uint8 *
 get_blk(filesystem *fs, uint32 blk)
 {
 	return (uint8*)fs + blk*BLOCKSIZE;
 }
+#endif
 
+#if 0
 // return a given inode from a filesystem
 static inline inode *
 get_nod(filesystem *fs, uint32 nod)
@@ -837,7 +857,9 @@ get_nod(filesystem *fs, uint32 nod)
 	itab = (inode *)get_blk(fs, fs->gd[grp].bg_inode_table);
 	return itab+offset-1;
 }
+#endif
 
+#if 0
 // allocate a given block/inode in the bitmap
 // allocate first free if item == 0
 static uint32
@@ -863,14 +885,18 @@ allocate(block b, uint32 item)
 	b[(item-1) / 8] |= (1 << ((item-1) % 8));
 	return item;
 }
+#endif
 
+#if 0
 // deallocate a given block/inode
 static void
 deallocate(block b, uint32 item)
 {
 	b[(item-1) / 8] &= ~(1 << ((item-1) % 8));
 }
+#endif
 
+#if 0
 // allocate a block
 static uint32
 alloc_blk(filesystem *fs, uint32 nod)
@@ -893,7 +919,9 @@ alloc_blk(filesystem *fs, uint32 nod)
 		error_msg_and_die("superblock free blocks count == 0 (corrupted fs?)");
 	return fs->sb.s_blocks_per_group*grp + bk;
 }
+#endif
 
+#if 0
 // free a block
 static void
 free_blk(filesystem *fs, uint32 bk)
@@ -906,7 +934,9 @@ free_blk(filesystem *fs, uint32 bk)
 	fs->gd[grp].bg_free_blocks_count++;
 	fs->sb.s_free_blocks_count++;
 }
+#endif
 
+#if 0
 // allocate an inode
 static uint32
 alloc_nod(filesystem *fs)
@@ -939,6 +969,7 @@ alloc_nod(filesystem *fs)
 		error_msg_and_die("superblock free blocks count == 0 (corrupted fs?)");
 	return fs->sb.s_inodes_per_group*best_group+nod;
 }
+#endif
 
 #if 0
 // print a bitmap allocation
@@ -958,6 +989,7 @@ print_bm(block b, uint32 max)
 }
 #endif
 
+#if 0
 // initalize a blockwalker (iterator for blocks list)
 static inline void
 init_bw(blockwalker *bw)
@@ -965,7 +997,9 @@ init_bw(blockwalker *bw)
 	bw->bnum = 0;
 	bw->bpdir = EXT2_INIT_BLOCK;
 }
+#endif
 
+#if 0
 // return next block of inode (WALK_END for end)
 // if *create>0, append a newly allocated block at the end
 // if *create<0, free the block - warning, the metadata blocks contents is
@@ -1204,7 +1238,9 @@ walk_bw(filesystem *fs, ext2_ino_t nod, blockwalker *bw, int32 *create, uint32 h
 		get_nod(fs, nod)->i_blocks = bw->bnum * INOBLK;
 	return *bkref;
 }
+#endif
 
+#if 0
 // add blocks to an inode (file/dir/etc...)
 static void
 extend_blk(filesystem *fs, ext2_ino_t nod, block b, int amount)
@@ -1247,96 +1283,40 @@ extend_blk(filesystem *fs, ext2_ino_t nod, block b, int amount)
 		}
 	}
 }
+#endif
 
 // link an entry (inode #) to a directory
 static void
 add2dir(filesystem *fs, ext2_ino_t dnod, ext2_ino_t nod, const char* name)
 {
-	blockwalker bw;
-	uint32 bk;
-	uint8 *b;
-	directory *d;
-	int reclen, nlen;
-	inode *node;
-	inode *pnode;
+	int rc;
+	int flags = 0; // do_modetoext2lag(mode);
 
-	pnode = get_nod(fs, dnod);
-	if((pnode->i_mode & FM_IFMT) != FM_IFDIR)
-		error_msg_and_die("can't add '%s' to a non-directory", name);
-	if(!*name)
-		error_msg_and_die("can't create an inode with an empty name");
-	if(strchr(name, '/'))
-		error_msg_and_die("bad name '%s' (contains a slash)", name);
-	nlen = strlen(name);
-	reclen = sizeof(directory) + rndup(nlen, 4);
-	if(reclen > BLOCKSIZE)
-		error_msg_and_die("bad name '%s' (too long)", name);
-	init_bw(&bw);
-	while((bk = walk_bw(fs, dnod, &bw, 0, 0)) != WALK_END) // for all blocks in dir
-	{
-		b = get_blk(fs, bk);
-		// for all dir entries in block
-		for(d = (directory*)b; (int8*)d + sizeof(*d) < (int8*)b + BLOCKSIZE; d = (directory*)((int8*)d + d->d_rec_len))
-		{
-			// if empty dir entry, large enough, use it
-			if((!d->d_inode) && (d->d_rec_len >= reclen))
-			{
-				d->d_inode = nod;
-				node = get_nod(fs, nod);
-				node->i_links_count++;
-				d->d_name_len = nlen;
-				strncpy(d->d_name, name, nlen);
-				return;
-			}
-			// if entry with enough room (last one?), shrink it & use it
-			if(d->d_rec_len >= (sizeof(directory) + rndup(d->d_name_len, 4) + reclen))
-			{
-				reclen = d->d_rec_len;
-				d->d_rec_len = sizeof(directory) + rndup(d->d_name_len, 4);
-				reclen -= d->d_rec_len;
-				d = (directory*) (((int8*)d) + d->d_rec_len);
-				d->d_rec_len = reclen;
-				d->d_inode = nod;
-				node = get_nod(fs, nod);
-				node->i_links_count++;
-				d->d_name_len = nlen;
-				strncpy(d->d_name, name, nlen);
-				return;
-			}
+	do {
+		debugf("calling ext2fs_link(e2fs, %d, %s, %d, %d);", dnod, name, nod, flags);
+		rc = ext2fs_link(fs, dnod, name, nod, flags);
+		if (rc == EXT2_ET_DIR_NO_SPACE) {
+			debugf("calling ext2fs_expand_dir(e2fs, &d)", dnod);
+			if (ext2fs_expand_dir(fs, dnod))
+				error_msg_and_die("error while expanding directory %d", dnod);
 		}
-	}
-	// we found no free entry in the directory, so we add a block
-	if(!(b = get_workblk()))
-		error_msg_and_die("get_workblk() failed.");
-	d = (directory*)b;
-	d->d_inode = nod;
-	node = get_nod(fs, nod);
-	node->i_links_count++;
-	d->d_rec_len = BLOCKSIZE;
-	d->d_name_len = nlen;
-	strncpy(d->d_name, name, nlen);
-	extend_blk(fs, dnod, b, 1);
-	get_nod(fs, dnod)->i_size += BLOCKSIZE;
-	free_workblk(b);
+	} while (rc == EXT2_ET_DIR_NO_SPACE);
+	if (rc)
+		error_msg_and_die("ext2fs_link(e2fs, %d, %s, %d, %d); failed", dnod, name, nod, flags);
 }
 
 // find an entry in a directory
 static ext2_ino_t
 find_dir(filesystem *fs, ext2_ino_t nod, const char * name)
 {
-	blockwalker bw;
-	uint32 bk;
-	int nlen = strlen(name);
-	init_bw(&bw);
-	while((bk = walk_bw(fs, nod, &bw, 0, 0)) != WALK_END)
-	{
-		directory *d;
-		uint8 *b;
-		b = get_blk(fs, bk);
-		for(d = (directory*)b; (int8*)d + sizeof(*d) < (int8*)b + BLOCKSIZE; d = (directory*)((int8*)d + d->d_rec_len))
-			if(d->d_inode && (nlen == d->d_name_len) && !strncmp(d->d_name, name, nlen))
-				return d->d_inode;
-	}
+	ext2_ino_t ino;
+	int rc = ext2fs_lookup(fs, nod, name, strlen(name), NULL, &ino);
+	if (!rc)
+		return ino;
+
+	if (rc != EXT2_ET_FILE_NOT_FOUND)
+		error_msg_and_die("ext2fs_lookup failed");
+
 	return 0;
 }
 
@@ -1344,32 +1324,148 @@ find_dir(filesystem *fs, ext2_ino_t nod, const char * name)
 static ext2_ino_t
 find_path(filesystem *fs, ext2_ino_t nod, const char * name)
 {
-	char *p, *n, *n2 = xstrdup(name);
-	n = n2;
-	while(*n == '/')
-	{
+	errcode_t rc;
+	ext2_ino_t ino;
+
+	// TODO not sure about root/cwd parameters
+//	rc = ext2fs_namei(e2fs, EXT2_ROOT_INO, EXT2_ROOT_INO, path, ino);
+	if (name[0] == '/')
 		nod = EXT2_ROOT_INO;
-		n++;
-	}
-	while(*n)
-	{
-		if((p = strchr(n, '/')))
-			(*p) = 0;
-		if(!(nod = find_dir(fs, nod, n)))
-			break;
-		if(p)
-			n = p + 1;
-		else
-			break;
-	}
-	free(n2);
-	return nod;
+	rc = ext2fs_namei(fs, nod, nod, name, &ino);
+	return rc ? 0 : ino;
 }
+
+static int do_modetoext2lag (mode_t mode)
+{
+	if (S_ISREG(mode)) {
+		return EXT2_FT_REG_FILE;
+	} else if (S_ISDIR(mode)) {
+		return EXT2_FT_DIR;
+	} else if (S_ISCHR(mode)) {
+		return EXT2_FT_CHRDEV;
+	} else if (S_ISBLK(mode)) {
+		return EXT2_FT_BLKDEV;
+	} else if (S_ISFIFO(mode)) {
+		return EXT2_FT_FIFO;
+	} else if (S_ISSOCK(mode)) {
+		return EXT2_FT_SOCK;
+	} else if (S_ISLNK(mode)) {
+		return EXT2_FT_SYMLINK;
+	}
+	return EXT2_FT_UNKNOWN;
+}
+
+static inline int old_valid_dev(dev_t dev)
+{
+	return major(dev) < 256 && minor(dev) < 256;
+}
+
+static inline __u16 old_encode_dev(dev_t dev)
+{
+	return (major(dev) << 8) | minor(dev);
+}
+
+static inline __u32 new_encode_dev(dev_t dev)
+{
+	unsigned major = major(dev);
+	unsigned minor = minor(dev);
+	return (minor & 0xff) | (major << 8) | ((minor & ~0xff) << 12);
+}
+
+ext2_ino_t do_create (ext2_filsys e2fs, 
+	const ext2_ino_t ino, /** parent inode */
+	const char *name,
+	mode_t mode,
+	dev_t dev, // TODO use it !! (how ??)
+	const char *fastsymlink,
+	uid_t uid, gid_t gid,
+	time_t ctime, time_t mtime)
+{
+	int rt;
+//	time_t tm;
+	errcode_t rc;
+
+	struct ext2_inode inode;
+	ext2_ino_t n_ino;
+
+	debugf("enter");
+	debugf("name = %s, mode: 0%o", name, mode);
+
+//	rt = do_readinode(e2fs, p_path, &ino, &inode);
+	if (ext2fs_read_inode(e2fs, ino, &inode))
+		error_msg_and_die("ext2fs_read_inode failed");
+
+	rc = ext2fs_new_inode(e2fs, ino, mode, 0, &n_ino);
+	if (rc)
+		error_msg_and_die("ext2fs_new_inode(ep.fs, ino, mode, 0, &n_ino); failed");
+
+	do {
+		debugf("calling ext2fs_link(e2fs, %d, %s, %d, %d);", ino, name, n_ino, do_modetoext2lag(mode));
+		rc = ext2fs_link(e2fs, ino, name, n_ino, do_modetoext2lag(mode));
+		if (rc == EXT2_ET_DIR_NO_SPACE) {
+			debugf("calling ext2fs_expand_dir(e2fs, &d)", ino);
+			if (ext2fs_expand_dir(e2fs, ino))
+				error_msg_and_die("error while expanding directory %d", ino);
+		}
+	} while (rc == EXT2_ET_DIR_NO_SPACE);
+	if (rc)
+		error_msg_and_die("ext2fs_link(e2fs, %d, %s, %d, %d); failed", ino, name, n_ino, do_modetoext2lag(mode));
+
+	if (ext2fs_test_inode_bitmap(e2fs->inode_map, n_ino)) {
+		debugf("inode already set");
+	}
+
+	ext2fs_inode_alloc_stats2(e2fs, n_ino, +1, 0);
+	memset(&inode, 0, sizeof(inode));
+//	tm = e2fs->now ? e2fs->now : time(NULL);
+	inode.i_mode = mode;
+	inode.i_atime = inode.i_mtime = mtime;
+	inode.i_ctime = ctime;
+	inode.i_links_count = 1;
+	inode.i_size = 0;
+	inode.i_uid = uid;
+	inode.i_gid = gid;
+
+	if (S_ISCHR(mode) || S_ISBLK(mode)) {
+		if (old_valid_dev(dev))
+			inode.i_block[0]= ext2fs_cpu_to_le32(old_encode_dev(dev));
+		else
+			inode.i_block[1]= ext2fs_cpu_to_le32(new_encode_dev(dev));
+	}
+
+	if (S_ISLNK(mode) && fastsymlink != NULL) {
+		inode.i_size = strlen(fastsymlink);
+		strncpy((char *)&(inode.i_block[0]),fastsymlink,
+				(EXT2_N_BLOCKS * sizeof(inode.i_block[0])));
+	}
+
+	rc = ext2fs_write_new_inode(e2fs, n_ino, &inode);
+	if (rc)
+		error_msg_and_die("ext2fs_write_new_inode(e2fs, n_ino, &inode);");
+
+	/* update parent dir */
+	if (ext2fs_read_inode(e2fs, ino, &inode))
+		error_msg_and_die("ext2fs_read_inode failed");
+
+	// TODO what to do ??
+//	inode.i_ctime = inode.i_mtime = tm;
+	rc = ext2fs_write_inode(e2fs, ino, &inode);
+	if (rc)
+		error_msg_and_die("ext2fs_write_inode(e2fs, ino, &inode); failed");
+
+	debugf("leave");
+	return n_ino;
+}
+
 
 // create a simple inode
 static ext2_ino_t
-mknod_fs(filesystem *fs, ext2_ino_t parent_nod, const char *name, uint16 mode, uint16 uid, uint16 gid, uint8 major, uint8 minor, uint32 ctime, uint32 mtime)
+mknod_fs(filesystem *fs, ext2_ino_t parent_nod, const char *name, uint16 mode, uid_t uid, gid_t gid, uint8 major, uint8 minor, uint32 ctime, uint32 mtime)
 {
+	// TODO what happen if already exists ?? see test below
+	return do_create(fs, parent_nod, name, mode, makedev(major, minor), NULL, uid, gid, ctime, mtime);
+
+#if 0
 	ext2_ino_t nod;
 	inode *node;
 	if((nod = find_dir(fs, parent_nod, name)))
@@ -1408,6 +1504,7 @@ mknod_fs(filesystem *fs, ext2_ino_t parent_nod, const char *name, uint16 mode, u
 	node->i_ctime = ctime;
 	node->i_mtime = mtime;
 	return nod;
+#endif
 }
 
 // make a full-fledged directory (i.e. with "." & "..")
@@ -1418,6 +1515,149 @@ mkdir_fs(filesystem *fs, ext2_ino_t parent_nod, const char *name, uint32 mode,
 	return mknod_fs(fs, parent_nod, name, mode|FM_IFDIR, uid, gid, 0, 0, ctime, mtime);
 }
 
+struct ext2_vnode {
+	struct ext2_inode inode;
+	ext2_filsys e2fs;
+	ext2_ino_t ino;
+	int count;
+	struct ext2_vnode **pprevhash,*nexthash;
+};
+
+static inline struct ext2_inode *vnode2inode(struct ext2_vnode *vnode) {
+	return &vnode->inode;
+}
+
+#define EXT2_FILE_SHARED_INODE 0x8000
+
+ext2_file_t do_open (ext2_filsys e2fs, ext2_ino_t ino, int flags)
+{
+	errcode_t rc;
+	ext2_file_t efile;
+
+	debugf("enter");
+
+	rc = ext2fs_file_open(e2fs, ino,
+			(((flags & O_ACCMODE) != 0) ? EXT2_FILE_WRITE : 0) | EXT2_FILE_SHARED_INODE, 
+			&efile);
+
+	if (rc) {
+		return NULL;
+	}
+
+	debugf("leave");
+	return efile;
+}
+
+#if 1
+struct ext2_file {
+	errcode_t		magic;
+	ext2_filsys 		fs;
+	ext2_ino_t		ino;
+	struct ext2_inode	*inode;
+	int 			flags;
+	__u64			pos;
+	blk_t			blockno;
+	blk_t			physblock;
+	char 			*buf;
+};
+
+#define ext2fs_file_get_lsize ext2fs_file_get_lsize_workaround
+static errcode_t ext2fs_file_get_lsize(ext2_file_t file, __u64 *ret_size)
+{
+	if (file->magic != EXT2_ET_MAGIC_EXT2_FILE)
+		return EXT2_ET_MAGIC_EXT2_FILE;
+	*ret_size = EXT2_I_SIZE(file->inode);
+	return 0;
+}
+#endif
+/*
+ * This function sets the size of the file, truncating it if necessary
+ *
+ */
+errcode_t ext2fs_file_set_lsize(ext2_file_t file, __u64 size)
+{
+	int retval;
+	EXT2_CHECK_MAGIC(file, EXT2_ET_MAGIC_EXT2_FILE);
+
+	if (size >= file->inode->i_size) {
+		file->inode->i_size = size & 0xffffffff;
+		file->inode->i_size_high = (size >> 32) & 0xffffffff;
+		if (file->ino) {
+			retval = ext2fs_write_inode(file->fs, file->ino, file->inode);
+			if (retval)
+				return retval;
+		}
+	} else {
+		// TODO we don't care about shrink!
+	}
+
+	return 0;
+}
+
+
+// TODO support files bigger then 2/4gb
+static size_t do_write (ext2_file_t efile, const char *buf, size_t size, off_t offset)
+{
+	int rt;
+	const char *tmp;
+	unsigned int wr;
+	unsigned long long npos;
+	unsigned long long fsize;
+
+	debugf("enter");
+
+#if 0
+	rt = ext2fs_file_get_lsize(efile, &fsize);
+	if (rt != 0) {
+		debugf("ext2fs_file_get_lsize(efile, &fsize); failed");
+		return rt;
+	}
+	if (offset + size > fsize) {
+		rt = ext2fs_file_set_lsize(efile, offset + size);
+		if (rt) {
+			debugf("extfs_file_set_size(efile, %lld); failed", (long long) (offset + size));
+			return rt;
+		}
+	}
+#endif
+
+	rt = ext2fs_file_llseek(efile, offset, SEEK_SET, &npos);
+	if (rt) {
+		debugf("ext2fs_file_lseek(efile, %lld, SEEK_SET, &npos); failed", (long long) offset);
+		return rt;
+	}
+
+	for (rt = 0, wr = 0, tmp = buf; size > 0 && rt == 0; size -= wr, tmp += wr) {
+		debugf("size: %lu, written: %lu", (unsigned long) size, (unsigned long) wr);
+		rt = ext2fs_file_write(efile, tmp, size, &wr);
+	}
+	if (rt) {
+		debugf("ext2fs_file_write(edile, tmp, size, &wr); failed");
+		return rt;
+	}
+
+	rt = ext2fs_file_flush(efile);
+	if (rt) {
+		debugf("ext2_file_flush(efile); failed");
+		return rt;
+	}
+
+	debugf("leave");
+	return wr;
+}
+
+static int do_release (ext2_file_t efile)
+{
+	errcode_t rc;
+
+	rc = ext2fs_file_close(efile);
+	if (rc)
+		return -EIO;
+
+	return 0;
+}
+
+
 // make a symlink
 static ext2_ino_t
 mklink_fs(filesystem *e2fs, ext2_ino_t parent_nod, const char *destname, size_t sourcelen, uint8 *sourcename, uid_t uid, gid_t gid, uint32 ctime, uint32 mtime)
@@ -1425,22 +1665,20 @@ mklink_fs(filesystem *e2fs, ext2_ino_t parent_nod, const char *destname, size_t 
 	int rt;
 	size_t wr;
 	ext2_file_t efile;
+	ext2_ino_t ino;
 
 	debugf("enter");
 	debugf("source: %s, dest: %s", sourcename, destname);
 
 	/* a short symlink is stored in the inode (recycling the i_block array) */
 	if (sourcelen < (EXT2_N_BLOCKS * sizeof(__u32))) {
-		rt = do_create(e2fs, destname, LINUX_S_IFLNK | 0777, 0, sourcename);
-		if (rt != 0)
-			perror_msg_and_die("do_create(%s, LINUX_S_IFLNK | 0777, FAST); failed", destname);
+		ino = do_create(e2fs, parent_nod, destname, LINUX_S_IFLNK | 0777, 0, sourcename, uid, gid, ctime, mtime);
 	} else {
-		rt = do_create(e2fs, destname, LINUX_S_IFLNK | 0777, 0, NULL);
-		if (rt != 0)
-			perror_msg_and_die("do_create(%s, LINUX_S_IFLNK | 0777); failed", destname);
-		efile = do_open(e2fs, destname, O_WRONLY);
+		ino = do_create(e2fs, parent_nod, destname, LINUX_S_IFLNK | 0777, 0, NULL, uid, gid, ctime, mtime);
+
+		efile = do_open(e2fs, ino, O_WRONLY);
 		if (efile == NULL)
-			perror_msg_and_die("do_open(%s); failed", destname);
+			perror_msg_and_die("do_open(%d); failed", ino);
 		wr = do_write(efile, sourcename, sourcelen, 0);
 		if (wr != strlen(sourcename))
 			perror_msg_and_die("do_write(efile, %s, %d, 0); failed", sourcename, strlen(sourcename) + 1);
@@ -1449,41 +1687,40 @@ mklink_fs(filesystem *e2fs, ext2_ino_t parent_nod, const char *destname, size_t 
 			perror_msg_and_die("do_release(efile); failed");
 	}
 	debugf("leave");
-	return 0;
-
-// TODO set all attributes, uid/gid and ctime/mtime
-
-#if 0
-	uint32 nod = mknod_fs(fs, parent_nod, name, FM_IFLNK | FM_IRWXU | FM_IRWXG | FM_IRWXO, uid, gid, 0, 0, ctime, mtime);
-	extend_blk(fs, nod, 0, - (int)get_nod(fs, nod)->i_blocks / INOBLK);
-	get_nod(fs, nod)->i_size = size;
-	if(size <= 4 * (EXT2_TIND_BLOCK+1))
-	{
-		strncpy((char*)get_nod(fs, nod)->i_block, (char*)b, size);
-		return nod;
-	}
-	extend_blk(fs, nod, b, rndup(size, BLOCKSIZE) / BLOCKSIZE);
-	return nod;
-#endif
+	return ino;
 }
 
 // make a file from a FILE*
 static ext2_ino_t
 mkfile_fs(filesystem *fs, ext2_ino_t parent_nod, const char *name, uint32 mode, size_t size, FILE *f, uid_t uid, gid_t gid, uint32 ctime, uint32 mtime)
 {
+	ext2_file_t efile;
 	uint8 * b;
-	ext2_ino_t nod = mknod_fs(fs, parent_nod, name, mode|FM_IFREG, uid, gid, 0, 0, ctime, mtime);
-	extend_blk(fs, nod, 0, - (int)get_nod(fs, nod)->i_blocks / INOBLK);
-	get_nod(fs, nod)->i_size = size;
+	ext2_ino_t ino = mknod_fs(fs, parent_nod, name, mode|FM_IFREG, uid, gid, 0, 0, ctime, mtime);
+
+	// TODO use fallocate, handle sparse files
 	if (size) {
+		int rt;
+		size_t wr;
+
 		if(!(b = (uint8*)calloc(rndup(size, BLOCKSIZE), 1)))
 			error_msg_and_die("not enough mem to read file '%s'", name);
 		if(f)
 			fread(b, size, 1, f); // FIXME: ugly. use mmap() ...
-		extend_blk(fs, nod, b, rndup(size, BLOCKSIZE) / BLOCKSIZE);
+
+		efile = do_open(fs, ino, O_WRONLY);
+		if (efile == NULL)
+			perror_msg_and_die("do_open(%d); failed", ino);
+		wr = do_write(efile, b, size, 0);
+		if (wr != size)
+			perror_msg_and_die("do_write(efile, %p, %d, 0); failed", b, size);
+		rt = do_release(efile);
+		if (rt != 0)
+			perror_msg_and_die("do_release(efile); failed");
+
 		free(b);
 	}
-	return nod;
+	return ino;
 }
 
 // retrieves a mode info from a struct stat
@@ -2153,6 +2390,7 @@ free_fs(filesystem *e2fs)
 	}
 }
 
+#if 0
 // just walk through blocks list
 static void
 flist_blocks(filesystem *fs, ext2_ino_t nod, FILE *fh)
@@ -2164,6 +2402,7 @@ flist_blocks(filesystem *fs, ext2_ino_t nod, FILE *fh)
 		fprintf(fh, " %d", bk);
 	fprintf(fh, "\n");
 }
+#endif
 
 #if 0
 // walk through blocks list
@@ -2671,6 +2910,8 @@ main(int argc, char **argv)
 		print_fs(fs);
 #endif
 
+	// TODO support g option
+#if 0
 	for(i = 0; i < gidx; i++)
 	{
 		ext2_ino_t nod;
@@ -2687,6 +2928,7 @@ main(int argc, char **argv)
 		flist_blocks(fs, nod, fh);
 		fclose(fh);
 	}
+#endif
 
 	// TODO write to another file
 #if 0
