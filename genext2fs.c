@@ -1394,7 +1394,7 @@ ext2_ino_t do_create (ext2_filsys e2fs,
 	time_t ctime, time_t mtime)
 {
 	int rt;
-//	time_t tm;
+	int is_dir = S_ISDIR(mode);
 	errcode_t rc;
 
 	struct ext2_inode inode;
@@ -1403,7 +1403,6 @@ ext2_ino_t do_create (ext2_filsys e2fs,
 	debugf("enter");
 	debugf("name = %s, mode: 0%o", name, mode);
 
-//	rt = do_readinode(e2fs, p_path, &ino, &inode);
 	if (ext2fs_read_inode(e2fs, ino, &inode))
 		error_msg_and_die("ext2fs_read_inode failed");
 
@@ -1413,7 +1412,10 @@ ext2_ino_t do_create (ext2_filsys e2fs,
 
 	do {
 		debugf("calling ext2fs_link(e2fs, %d, %s, %d, %d);", ino, name, n_ino, do_modetoext2lag(mode));
-		rc = ext2fs_link(e2fs, ino, name, n_ino, do_modetoext2lag(mode));
+		if (is_dir)
+			rc = ext2fs_mkdir(e2fs, ino, n_ino, name);
+		else
+			rc = ext2fs_link(e2fs, ino, name, n_ino, do_modetoext2lag(mode));
 		if (rc == EXT2_ET_DIR_NO_SPACE) {
 			debugf("calling ext2fs_expand_dir(e2fs, &d)", ino);
 			if (ext2fs_expand_dir(e2fs, ino))
@@ -1421,20 +1423,25 @@ ext2_ino_t do_create (ext2_filsys e2fs,
 		}
 	} while (rc == EXT2_ET_DIR_NO_SPACE);
 	if (rc)
-		error_msg_and_die("ext2fs_link(e2fs, %d, %s, %d, %d); failed", ino, name, n_ino, do_modetoext2lag(mode));
+		error_msg_and_die("ext2fs_link(e2fs, %d, %s, %d, %d); failed with %d", ino, name, n_ino, do_modetoext2lag(mode), rc);
 
 	if (ext2fs_test_inode_bitmap(e2fs->inode_map, n_ino)) {
 		debugf("inode already set");
 	}
 
-	ext2fs_inode_alloc_stats2(e2fs, n_ino, +1, 0);
-	memset(&inode, 0, sizeof(inode));
-//	tm = e2fs->now ? e2fs->now : time(NULL);
+	if (is_dir) {
+		if (ext2fs_read_inode(e2fs, n_ino, &inode))
+			error_msg_and_die("ext2fs_read_inode failed");
+	} else {
+		ext2fs_inode_alloc_stats2(e2fs, n_ino, +1, 0);
+
+		memset(&inode, 0, sizeof(inode));
+		inode.i_links_count = 1;
+		inode.i_size = 0;
+	}
 	inode.i_mode = mode;
 	inode.i_atime = inode.i_mtime = mtime;
 	inode.i_ctime = ctime;
-	inode.i_links_count = 1;
-	inode.i_size = 0;
 	inode.i_uid = uid;
 	inode.i_gid = gid;
 
@@ -1454,16 +1461,6 @@ ext2_ino_t do_create (ext2_filsys e2fs,
 	rc = ext2fs_write_new_inode(e2fs, n_ino, &inode);
 	if (rc)
 		error_msg_and_die("ext2fs_write_new_inode(e2fs, n_ino, &inode);");
-
-	/* update parent dir */
-	if (ext2fs_read_inode(e2fs, ino, &inode))
-		error_msg_and_die("ext2fs_read_inode failed");
-
-	// TODO what to do ??
-//	inode.i_ctime = inode.i_mtime = tm;
-	rc = ext2fs_write_inode(e2fs, ino, &inode);
-	if (rc)
-		error_msg_and_die("ext2fs_write_inode(e2fs, ino, &inode); failed");
 
 	debugf("leave");
 	return n_ino;
@@ -1591,7 +1588,8 @@ static size_t do_write (ext2_file_t efile, const char *buf, size_t size, off_t o
 	return wr;
 }
 
-static int do_release (ext2_file_t efile)
+static int
+do_release (ext2_file_t efile)
 {
 	errcode_t rc;
 
