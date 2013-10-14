@@ -146,8 +146,6 @@
 
 #include <ext2fs/ext2fs.h>
 
-#define debugf(args...) do { printf("line %d:", __LINE__); printf(args) ; printf("\n"); } while(0)
-
 struct stats {
 	unsigned long nblocks;
 	unsigned long ninodes;
@@ -682,6 +680,20 @@ swap_block(block b)
 
 static char * app_name;
 static const char *const memory_exhausted = "memory exhausted";
+
+static void
+debugf(int line, const char *fmt, ...)
+{
+	va_list p;
+	va_start(p, fmt);
+	fflush(stdout);
+	fprintf(stderr, "line %d: ", line);
+	vfprintf(stderr, fmt, p);
+	putc('\n', stderr);
+	va_end(p);
+}
+
+#define debugf(args...) debugf(__LINE__, args)
 
 // error (un)handling
 static void
@@ -1515,18 +1527,6 @@ mkdir_fs(filesystem *fs, ext2_ino_t parent_nod, const char *name, uint32 mode,
 	return mknod_fs(fs, parent_nod, name, mode|FM_IFDIR, uid, gid, 0, 0, ctime, mtime);
 }
 
-struct ext2_vnode {
-	struct ext2_inode inode;
-	ext2_filsys e2fs;
-	ext2_ino_t ino;
-	int count;
-	struct ext2_vnode **pprevhash,*nexthash;
-};
-
-static inline struct ext2_inode *vnode2inode(struct ext2_vnode *vnode) {
-	return &vnode->inode;
-}
-
 #define EXT2_FILE_SHARED_INODE 0x8000
 
 ext2_file_t do_open (ext2_filsys e2fs, ext2_ino_t ino, int flags)
@@ -1539,61 +1539,12 @@ ext2_file_t do_open (ext2_filsys e2fs, ext2_ino_t ino, int flags)
 	rc = ext2fs_file_open(e2fs, ino,
 			(((flags & O_ACCMODE) != 0) ? EXT2_FILE_WRITE : 0) | EXT2_FILE_SHARED_INODE, 
 			&efile);
-
-	if (rc) {
+	if (rc)
 		return NULL;
-	}
 
 	debugf("leave");
 	return efile;
 }
-
-#if 1
-struct ext2_file {
-	errcode_t		magic;
-	ext2_filsys 		fs;
-	ext2_ino_t		ino;
-	struct ext2_inode	*inode;
-	int 			flags;
-	__u64			pos;
-	blk_t			blockno;
-	blk_t			physblock;
-	char 			*buf;
-};
-
-#define ext2fs_file_get_lsize ext2fs_file_get_lsize_workaround
-static errcode_t ext2fs_file_get_lsize(ext2_file_t file, __u64 *ret_size)
-{
-	if (file->magic != EXT2_ET_MAGIC_EXT2_FILE)
-		return EXT2_ET_MAGIC_EXT2_FILE;
-	*ret_size = EXT2_I_SIZE(file->inode);
-	return 0;
-}
-#endif
-/*
- * This function sets the size of the file, truncating it if necessary
- *
- */
-errcode_t ext2fs_file_set_lsize(ext2_file_t file, __u64 size)
-{
-	int retval;
-	EXT2_CHECK_MAGIC(file, EXT2_ET_MAGIC_EXT2_FILE);
-
-	if (size >= file->inode->i_size) {
-		file->inode->i_size = size & 0xffffffff;
-		file->inode->i_size_high = (size >> 32) & 0xffffffff;
-		if (file->ino) {
-			retval = ext2fs_write_inode(file->fs, file->ino, file->inode);
-			if (retval)
-				return retval;
-		}
-	} else {
-		// TODO we don't care about shrink!
-	}
-
-	return 0;
-}
-
 
 // TODO support files bigger then 2/4gb
 static size_t do_write (ext2_file_t efile, const char *buf, size_t size, off_t offset)
@@ -1603,23 +1554,9 @@ static size_t do_write (ext2_file_t efile, const char *buf, size_t size, off_t o
 	unsigned int wr;
 	unsigned long long npos;
 	unsigned long long fsize;
+	struct ext2_inode *inode;
 
 	debugf("enter");
-
-#if 0
-	rt = ext2fs_file_get_lsize(efile, &fsize);
-	if (rt != 0) {
-		debugf("ext2fs_file_get_lsize(efile, &fsize); failed");
-		return rt;
-	}
-	if (offset + size > fsize) {
-		rt = ext2fs_file_set_lsize(efile, offset + size);
-		if (rt) {
-			debugf("extfs_file_set_size(efile, %lld); failed", (long long) (offset + size));
-			return rt;
-		}
-	}
-#endif
 
 	rt = ext2fs_file_llseek(efile, offset, SEEK_SET, &npos);
 	if (rt) {
@@ -1627,9 +1564,17 @@ static size_t do_write (ext2_file_t efile, const char *buf, size_t size, off_t o
 		return rt;
 	}
 
+	inode = ext2fs_file_get_inode(efile);
 	for (rt = 0, wr = 0, tmp = buf; size > 0 && rt == 0; size -= wr, tmp += wr) {
 		debugf("size: %lu, written: %lu", (unsigned long) size, (unsigned long) wr);
 		rt = ext2fs_file_write(efile, tmp, size, &wr);
+
+		// update size if needed
+		offset += wr;
+		if (!rt && offset > EXT2_I_SIZE(inode)) {
+			inode->i_size = offset & 0xffffffff;
+			inode->i_size_high = (offset >> 32) & 0xffffffff;
+		}
 	}
 	if (rt) {
 		debugf("ext2fs_file_write(edile, tmp, size, &wr); failed");
@@ -2361,10 +2306,9 @@ load_fs(const char *device, int readonly)
 	rc = ext2fs_open(device, 
 			readonly ? 0 : EXT2_FLAG_RW,
 			0, 0, unix_io_manager, &e2fs);
-	if (rc) {
-		debugf("Error while trying to open %s", device);
+	if (rc)
 		perror_msg_and_die("error opening filesystem image");
-	}
+
 	if (readonly != 1)
 		rc = ext2fs_read_bitmaps(e2fs);
 	if (rc) {
@@ -2381,13 +2325,8 @@ load_fs(const char *device, int readonly)
 static void
 free_fs(filesystem *e2fs)
 {
-	errcode_t rc;
-
-	debugf("enter");
-	rc = ext2fs_close(e2fs);
-	if (rc) {
+	if (ext2fs_close(e2fs))
 		perror_msg_and_die("Error while trying to close ext2 filesystem");
-	}
 }
 
 #if 0
