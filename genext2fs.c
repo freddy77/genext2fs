@@ -514,24 +514,6 @@ is_hardlink(ino_t inode)
 // printf helper macro
 #define plural(a) (a), ((a) > 1) ? "s" : ""
 
-#if 0
-// temporary working block
-static inline uint8_t *
-get_workblk(void)
-{
-	unsigned char* b=calloc(1,fs->blocksize);
-	return b;
-}
-#endif
-
-#if 0
-static inline void
-free_workblk(block b)
-{
-	free(b);
-}
-#endif
-
 /* Rounds qty upto a multiple of siz. siz should be a power of 2 */
 static inline uint32_t
 rndup(uint32_t qty, uint32_t siz)
@@ -1235,7 +1217,8 @@ static void
 flist_blocks(filesystem *fs, ext2_ino_t nod, FILE *fh)
 {
 	gen_list_block_data data = { fh, 0 };
-	ext2fs_block_iterate3(fs, nod, LIST_FLAGS, NULL, list_func, &data);
+	if (ext2fs_block_iterate3(fs, nod, LIST_FLAGS, NULL, list_func, &data))
+		error_msg_and_die("error getting block informations");
 	fprintf(fh, "\n");
 }
 
@@ -1244,7 +1227,8 @@ static void
 list_blocks(filesystem *fs, ext2_ino_t nod)
 {
 	gen_list_block_data data = { stdout, 0 };
-	ext2fs_block_iterate3(fs, nod, LIST_FLAGS, NULL, list_func, &data);
+	if (ext2fs_block_iterate3(fs, nod, LIST_FLAGS, NULL, list_func, &data))
+		error_msg_and_die("error getting block informations");
 	printf("\n%d blocks (%d bytes)\n", data.count, data.count * fs->blocksize);
 }
 
@@ -1273,7 +1257,7 @@ write_func(ext2_filsys fs,
 		error_msg_and_die("error reading block");
 	if (fwrite(data->buf, left, 1, data->out) != 1)
 		error_msg_and_die("error while saving inode %d", data->nod);
-	data->left -= fs->blocksize;
+	data->left -= left;
 	return 0;
 }
 
@@ -1286,8 +1270,8 @@ write_blocks(filesystem *fs, ext2_ino_t nod, FILE* f)
 
 	data.left = get_nod(fs, nod, &inode)->i_size;
 	data.buf = xrealloc(NULL, fs->blocksize);
-	// TODO error (even above same call)
-	ext2fs_block_iterate3(fs, nod, LIST_FLAGS, NULL, write_func, &data);
+	if (ext2fs_block_iterate3(fs, nod, LIST_FLAGS, NULL, write_func, &data))
+		error_msg_and_die("error getting block informations");
 	free(data.buf);
 }
 
@@ -1535,17 +1519,6 @@ print_fs(filesystem *fs)
 	free(bmp);
 }
 
-#if 0
-static void
-dump_fs(filesystem *fs, FILE * fh)
-{
-	uint32_t nbblocks = fs->sb.s_blocks_count;
-	fs->sb.s_reserved[200] = 0;
-	if(fwrite(fs, fs->blocksize, nbblocks, fh) < nbblocks)
-		perror_msg_and_die("output filesystem image");
-}
-#endif
-
 static void
 populate_fs(filesystem *fs, char **dopt, int didx, int squash_uids, int squash_perms, uint32_t fs_timestamp)
 {
@@ -1638,7 +1611,6 @@ main(int argc, char **argv)
 	float reserved_frac = -1;
 	int fs_timestamp = -1;
 	char * fsout = "-";
-	char * fsin = NULL;
 	char * dopt[MAX_DOPT];
 	int didx = 0;
 	char * gopt[MAX_GOPT];
@@ -1654,7 +1626,6 @@ main(int argc, char **argv)
 
 #if HAVE_GETOPT_LONG
 	struct option longopts[] = {
-	  { "starting-image",	required_argument,	NULL, 'x' },
 	  { "root",		required_argument,	NULL, 'd' },
 	  { "devtable",		required_argument,	NULL, 'D' },
 	  { "size-in-blocks",	required_argument,	NULL, 'b' },
@@ -1676,17 +1647,14 @@ main(int argc, char **argv)
 
 	app_name = argv[0];
 
-	while((c = getopt_long(argc, argv, "x:d:D:b:i:N:m:g:e:zfqUPhVv", longopts, NULL)) != EOF) {
+	while((c = getopt_long(argc, argv, "d:D:b:i:N:m:g:e:zfqUPhVv", longopts, NULL)) != EOF) {
 #else
 	app_name = argv[0];
 
-	while((c = getopt(argc, argv,      "x:d:D:b:i:N:m:g:e:zfqUPhVv")) != EOF) {
+	while((c = getopt(argc, argv,      "d:D:b:i:N:m:g:e:zfqUPhVv")) != EOF) {
 #endif /* HAVE_GETOPT_LONG */
 		switch(c)
 		{
-			case 'x':
-				fsin = optarg;
-				break;
 			case 'd':
 			case 'D':
 				if (didx >= MAX_DOPT)
@@ -1753,17 +1721,11 @@ main(int argc, char **argv)
 	hdlinks.hdl = (struct hdlink_s *)xrealloc(NULL, hdlink_cnt * sizeof(struct hdlink_s));
 	hdlinks.count = 0 ;
 
-	if(fsin)
-	{
-		/* TODO support "-" as standard input */
-		fs = load_fs(fsin, 0);
-	}
-	else
-	{
-		/* TODO create filesystem */
-		error_msg_and_die("TODO create filesystem");
-	}
-	
+	if (!strcmp(fsout, "-"))
+		error_msg_and_die("output to stream not supported");
+
+	fs = load_fs(fsout, 0);
+
 	populate_fs(fs, dopt, didx, squash_uids, squash_perms, fs_timestamp);
 
 	/* TODO clear unused space */
@@ -1800,17 +1762,6 @@ main(int argc, char **argv)
 		fclose(fh);
 	}
 
-	// TODO write to another file
-#if 0
-	if(strcmp(fsout, "-"))
-	{
-		FILE * fh = xfopen(fsout, "wb");
-		dump_fs(fs, fh);
-		fclose(fh);
-	}
-	else
-		dump_fs(fs, stdout);
-#endif
 	free_fs(fs);
 	return 0;
 }
