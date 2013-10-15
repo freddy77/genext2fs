@@ -1054,12 +1054,9 @@ add2fs_from_file(filesystem *fs, ext2_ino_t this_nod, FILE * fh, uint32_t fs_tim
 		else
 			mknod_fs(fs, nod, name, mode, uid, gid, major, minor, ctime, mtime);
 	}
-	if (line)
-		free(line);
-	if (path) 
-		free(path);
-	if (path2)
-		free(path2);
+	free(line);
+	free(path);
+	free(path2);
 }
 
 // adds a tree of entries to the filesystem from current dir
