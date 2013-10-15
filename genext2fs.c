@@ -514,13 +514,6 @@ is_hardlink(ino_t inode)
 // printf helper macro
 #define plural(a) (a), ((a) > 1) ? "s" : ""
 
-/* Rounds qty upto a multiple of siz. siz should be a power of 2 */
-static inline uint32_t
-rndup(uint32_t qty, uint32_t siz)
-{
-	return (qty + (siz - 1)) & ~(siz - 1);
-}
-
 // check if something is allocated in the bitmap
 static inline uint32_t
 allocated(const uint8_t *b, uint32_t item)
@@ -885,7 +878,7 @@ mkfile_fs(filesystem *fs, ext2_ino_t parent_nod, const char *name, uint32_t mode
 		int rt;
 		size_t wr;
 
-		if(!(b = (uint8_t*)calloc(rndup(size, fs->blocksize), 1)))
+		if(!(b = (uint8_t*)calloc(size, 1)))
 			error_msg_and_die("not enough mem to read file '%s'", name);
 		if(f)
 			fread(b, size, 1, f); // FIXME: ugly. use mmap() ...
