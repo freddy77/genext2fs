@@ -512,7 +512,7 @@ is_hardlink(ino_t inode)
 }
 
 // printf helper macro
-#define plural(a) (a), ((a) > 1) ? "s" : ""
+#define plural(a) (a), ((a) == 1) ? "" : "s"
 
 // check if something is allocated in the bitmap
 static inline uint32_t
