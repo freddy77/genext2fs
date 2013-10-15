@@ -146,11 +146,6 @@
 
 #include <ext2fs/ext2fs.h>
 
-struct stats {
-	unsigned long nblocks;
-	unsigned long ninodes;
-};
-
 // inode block size (why is it != blocksize ?!?)
 /* The field i_blocks in the ext2 inode stores the number of data blocks
    but in terms of 512 bytes. That is what INODE_BLOCKSIZE represents.
@@ -981,7 +976,7 @@ get_mode(struct stat *st)
 */
 
 static void
-add2fs_from_file(filesystem *fs, ext2_ino_t this_nod, FILE * fh, uint32_t fs_timestamp, struct stats *stats)
+add2fs_from_file(filesystem *fs, ext2_ino_t this_nod, FILE * fh, uint32_t fs_timestamp)
 {
 	unsigned long mode, uid, gid, major, minor;
 	unsigned long start, increment, count;
@@ -1062,29 +1057,22 @@ add2fs_from_file(filesystem *fs, ext2_ino_t this_nod, FILE * fh, uint32_t fs_tim
 				error_msg("device table line %d skipped: bad type '%c' for entry '%s'", lineno, type, name);
 				continue;
 		}
-		if(stats) {
-			if(count > 0)
-				stats->ninodes += count - start;
-			else
-				stats->ninodes++;
-		} else {
-			if(count > 0)
+		if(count > 0)
+		{
+			char *dname;
+			unsigned long i;
+			unsigned len;
+			len = strlen(name) + 10;
+			dname = malloc(len + 1);
+			for(i = start; i < count; i++)
 			{
-				char *dname;
-				unsigned long i;
-				unsigned len;
-				len = strlen(name) + 10;
-				dname = malloc(len + 1);
-				for(i = start; i < count; i++)
-				{
-					SNPRINTF(dname, len, "%s%lu", name, i);
-					mknod_fs(fs, nod, dname, mode, uid, gid, major, minor + (i * increment - start), ctime, mtime);
-				}
-				free(dname);
+				SNPRINTF(dname, len, "%s%lu", name, i);
+				mknod_fs(fs, nod, dname, mode, uid, gid, major, minor + (i * increment - start), ctime, mtime);
 			}
-			else
-				mknod_fs(fs, nod, name, mode, uid, gid, major, minor, ctime, mtime);
+			free(dname);
 		}
+		else
+			mknod_fs(fs, nod, name, mode, uid, gid, major, minor, ctime, mtime);
 	}
 	if (line)
 		free(line);
@@ -1096,7 +1084,7 @@ add2fs_from_file(filesystem *fs, ext2_ino_t this_nod, FILE * fh, uint32_t fs_tim
 
 // adds a tree of entries to the filesystem from current dir
 static void
-add2fs_from_dir(filesystem *fs, ext2_ino_t this_nod, int squash_uids, int squash_perms, uint32_t fs_timestamp, struct stats *stats)
+add2fs_from_dir(filesystem *fs, ext2_ino_t this_nod, int squash_uids, int squash_perms, uint32_t fs_timestamp)
 {
 	ext2_ino_t nod;
 	uint32_t uid, gid, mode, ctime, mtime;
@@ -1125,89 +1113,63 @@ add2fs_from_dir(filesystem *fs, ext2_ino_t this_nod, int squash_uids, int squash
 			uid = gid = 0;
 		if(squash_perms)
 			mode &= ~(FM_IRWXG | FM_IRWXO);
-		if(stats)
-			switch(st.st_mode & S_IFMT)
-			{
-				case S_IFLNK:
-				case S_IFREG:
-					if((st.st_mode & S_IFMT) == S_IFREG || st.st_size > 4 * (EXT2_TIND_BLOCK+1))
-						stats->nblocks += (st.st_size + fs->blocksize - 1) / fs->blocksize;
-				case S_IFCHR:
-				case S_IFBLK:
-				case S_IFIFO:
-				case S_IFSOCK:
-					stats->ninodes++;
-					break;
-				case S_IFDIR:
-					stats->ninodes++;
-					if(chdir(dent->d_name) < 0)
-						perror_msg_and_die(dent->d_name);
-					add2fs_from_dir(fs, this_nod, squash_uids, squash_perms, fs_timestamp, stats);
-					chdir("..");
-					break;
-				default:
-					break;
+		save_nod = 0;
+		/* Check for hardlinks */
+		if (!S_ISDIR(st.st_mode) && !S_ISLNK(st.st_mode) && st.st_nlink > 1) {
+			int32_t hdlink = is_hardlink(st.st_ino);
+			if (hdlink >= 0) {
+				add2dir(fs, this_nod, hdlinks.hdl[hdlink].dst_nod, name);
+				continue;
+			} else {
+				save_nod = 1;
 			}
-		else
+		}
+		switch(st.st_mode & S_IFMT)
 		{
-			save_nod = 0;
-			/* Check for hardlinks */
-			if (!S_ISDIR(st.st_mode) && !S_ISLNK(st.st_mode) && st.st_nlink > 1) {
-				int32_t hdlink = is_hardlink(st.st_ino);
-				if (hdlink >= 0) {
-					add2dir(fs, this_nod, hdlinks.hdl[hdlink].dst_nod, name);
-					continue;
-				} else {
-					save_nod = 1;
-				}
-			}
-			switch(st.st_mode & S_IFMT)
-			{
 #if HAVE_STRUCT_STAT_ST_RDEV
-				case S_IFCHR:
-					nod = mknod_fs(fs, this_nod, name, mode|FM_IFCHR, uid, gid, major(st.st_rdev), minor(st.st_rdev), ctime, mtime);
-					break;
-				case S_IFBLK:
-					nod = mknod_fs(fs, this_nod, name, mode|FM_IFBLK, uid, gid, major(st.st_rdev), minor(st.st_rdev), ctime, mtime);
-					break;
+			case S_IFCHR:
+				nod = mknod_fs(fs, this_nod, name, mode|FM_IFCHR, uid, gid, major(st.st_rdev), minor(st.st_rdev), ctime, mtime);
+				break;
+			case S_IFBLK:
+				nod = mknod_fs(fs, this_nod, name, mode|FM_IFBLK, uid, gid, major(st.st_rdev), minor(st.st_rdev), ctime, mtime);
+				break;
 #endif
-				case S_IFIFO:
-					nod = mknod_fs(fs, this_nod, name, mode|FM_IFIFO, uid, gid, 0, 0, ctime, mtime);
-					break;
-				case S_IFSOCK:
-					nod = mknod_fs(fs, this_nod, name, mode|FM_IFSOCK, uid, gid, 0, 0, ctime, mtime);
-					break;
-				case S_IFLNK:
-					lnk = xreadlink(dent->d_name);
-					mklink_fs(fs, this_nod, name, st.st_size, (uint8_t*)lnk, uid, gid, ctime, mtime);
-					free(lnk);
-					break;
-				case S_IFREG:
-					fh = xfopen(dent->d_name, "rb");
-					nod = mkfile_fs(fs, this_nod, name, mode, st.st_size, fh, uid, gid, ctime, mtime);
-					fclose(fh);
-					break;
-				case S_IFDIR:
-					nod = mkdir_fs(fs, this_nod, name, mode, uid, gid, ctime, mtime);
-					if(chdir(dent->d_name) < 0)
-						perror_msg_and_die(name);
-					add2fs_from_dir(fs, nod, squash_uids, squash_perms, fs_timestamp, stats);
-					chdir("..");
-					break;
-				default:
-					error_msg("ignoring entry %s", name);
+			case S_IFIFO:
+				nod = mknod_fs(fs, this_nod, name, mode|FM_IFIFO, uid, gid, 0, 0, ctime, mtime);
+				break;
+			case S_IFSOCK:
+				nod = mknod_fs(fs, this_nod, name, mode|FM_IFSOCK, uid, gid, 0, 0, ctime, mtime);
+				break;
+			case S_IFLNK:
+				lnk = xreadlink(dent->d_name);
+				mklink_fs(fs, this_nod, name, st.st_size, (uint8_t*)lnk, uid, gid, ctime, mtime);
+				free(lnk);
+				break;
+			case S_IFREG:
+				fh = xfopen(dent->d_name, "rb");
+				nod = mkfile_fs(fs, this_nod, name, mode, st.st_size, fh, uid, gid, ctime, mtime);
+				fclose(fh);
+				break;
+			case S_IFDIR:
+				nod = mkdir_fs(fs, this_nod, name, mode, uid, gid, ctime, mtime);
+				if(chdir(dent->d_name) < 0)
+					perror_msg_and_die(name);
+				add2fs_from_dir(fs, nod, squash_uids, squash_perms, fs_timestamp);
+				chdir("..");
+				break;
+			default:
+				error_msg("ignoring entry %s", name);
+		}
+		if (save_nod) {
+			if (hdlinks.count == hdlink_cnt) {
+				hdlinks.hdl =
+					xrealloc (hdlinks.hdl, (hdlink_cnt + HDLINK_CNT) *
+							  sizeof (struct hdlink_s));
+				hdlink_cnt += HDLINK_CNT;
 			}
-			if (save_nod) {
-				if (hdlinks.count == hdlink_cnt) {
-					hdlinks.hdl =
-						xrealloc (hdlinks.hdl, (hdlink_cnt + HDLINK_CNT) *
-								  sizeof (struct hdlink_s));
-					hdlink_cnt += HDLINK_CNT;
-				}
-				hdlinks.hdl[hdlinks.count].src_inode = st.st_ino;
-				hdlinks.hdl[hdlinks.count].dst_nod = nod;
-				hdlinks.count++;
-			}
+			hdlinks.hdl[hdlinks.count].src_inode = st.st_ino;
+			hdlinks.hdl[hdlinks.count].dst_nod = nod;
+			hdlinks.count++;
 		}
 	}
 	closedir(dh);
@@ -1585,7 +1547,7 @@ dump_fs(filesystem *fs, FILE * fh)
 #endif
 
 static void
-populate_fs(filesystem *fs, char **dopt, int didx, int squash_uids, int squash_perms, uint32_t fs_timestamp, struct stats *stats)
+populate_fs(filesystem *fs, char **dopt, int didx, int squash_uids, int squash_perms, uint32_t fs_timestamp)
 {
 	int i;
 	for(i = 0; i < didx; i++)
@@ -1607,7 +1569,7 @@ populate_fs(filesystem *fs, char **dopt, int didx, int squash_uids, int squash_p
 		{
 			case S_IFREG:
 				fh = xfopen(dopt[i], "rb");
-				add2fs_from_file(fs, nod, fh, fs_timestamp, stats);
+				add2fs_from_file(fs, nod, fh, fs_timestamp);
 				fclose(fh);
 				break;
 			case S_IFDIR:
@@ -1615,7 +1577,7 @@ populate_fs(filesystem *fs, char **dopt, int didx, int squash_uids, int squash_p
 					perror_msg_and_die(".");
 				if(chdir(dopt[i]) < 0)
 					perror_msg_and_die(dopt[i]);
-				add2fs_from_dir(fs, nod, squash_uids, squash_perms, fs_timestamp, stats);
+				add2fs_from_dir(fs, nod, squash_uids, squash_perms, fs_timestamp);
 				if(fchdir(pdir) < 0)
 					perror_msg_and_die("fchdir");
 				if(close(pdir) < 0)
@@ -1689,7 +1651,6 @@ main(int argc, char **argv)
 	ext2_filsys fs;
 	int i;
 	int c;
-	struct stats stats;
 
 #if HAVE_GETOPT_LONG
 	struct option longopts[] = {
@@ -1803,7 +1764,7 @@ main(int argc, char **argv)
 		error_msg_and_die("TODO create filesystem");
 	}
 	
-	populate_fs(fs, dopt, didx, squash_uids, squash_perms, fs_timestamp, NULL);
+	populate_fs(fs, dopt, didx, squash_uids, squash_perms, fs_timestamp);
 
 	/* TODO clear unused space */
 #if 0
