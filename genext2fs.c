@@ -690,7 +690,10 @@ xstrdup(const char *s)
 static void *
 xrealloc(void *ptr, size_t size)
 {
-	ptr = realloc(ptr, size);
+	if (!ptr)
+		ptr = malloc(size);
+	else
+		ptr = realloc(ptr, size);
 	if (ptr == NULL && size != 0)
 		error_msg_and_die(memory_exhausted);
 	return ptr;
@@ -2060,7 +2063,7 @@ free_fs(filesystem *e2fs)
 typedef struct {
 	FILE *fh;
 	unsigned count;
-} gen_block_data;
+} gen_list_block_data;
 
 static int
 list_func(ext2_filsys fs,
@@ -2070,18 +2073,21 @@ list_func(ext2_filsys fs,
 	int         ref_offset,
 	void        *priv_data)
 {
-	gen_block_data *data = (gen_block_data *) priv_data;
+	gen_list_block_data *data = (gen_list_block_data *) priv_data;
 	++data->count;
 	fprintf(data->fh, " %lld", (long long) *blocknr);
 	return 0;
 }
 
+// TODO understand the better setting here
+#define LIST_FLAGS BLOCK_FLAG_DATA_ONLY|BLOCK_FLAG_READ_ONLY
+
 // just walk through blocks list
 static void
 flist_blocks(filesystem *fs, ext2_ino_t nod, FILE *fh)
 {
-	gen_block_data data = { fh, 0 };
-	ext2fs_block_iterate3(fs, nod, 0, NULL, list_func, &data);
+	gen_list_block_data data = { fh, 0 };
+	ext2fs_block_iterate3(fs, nod, LIST_FLAGS, NULL, list_func, &data);
 	fprintf(fh, "\n");
 }
 
@@ -2089,30 +2095,53 @@ flist_blocks(filesystem *fs, ext2_ino_t nod, FILE *fh)
 static void
 list_blocks(filesystem *fs, ext2_ino_t nod)
 {
-	gen_block_data data = { stdout, 0 };
-	ext2fs_block_iterate3(fs, nod, 0, NULL, list_func, &data);
+	gen_list_block_data data = { stdout, 0 };
+	ext2fs_block_iterate3(fs, nod, LIST_FLAGS, NULL, list_func, &data);
 	printf("\n%d blocks (%d bytes)\n", data.count, data.count * fs->blocksize);
 }
 
-#if 0
+typedef struct {
+	FILE *out;
+	ext2_ino_t nod;
+	int32_t left;
+	void *buf;
+} gen_write_block_data;
+
+static int
+write_func(ext2_filsys fs,
+	blk64_t     *blocknr,
+	e2_blkcnt_t blockcnt,
+	blk64_t     ref_blk,
+	int         ref_offset,
+	void        *priv_data)
+{
+	gen_write_block_data *data = (gen_write_block_data *) priv_data;
+	int32_t left = data->left;
+	if (left <= 0)
+		error_msg_and_die("wrong size while saving inode %d", data->nod);
+	if (left > fs->blocksize)
+		left = fs->blocksize;
+	if (io_channel_read_blk64(fs->io, *blocknr, 1, data->buf))
+		error_msg_and_die("error reading block");
+	if (fwrite(data->buf, left, 1, data->out) != 1)
+		error_msg_and_die("error while saving inode %d", data->nod);
+	data->left -= fs->blocksize;
+	return 0;
+}
+
 // saves blocks to FILE*
 static void
 write_blocks(filesystem *fs, ext2_ino_t nod, FILE* f)
 {
-	blockwalker bw;
-	uint32 bk;
-	int32 fsize = get_nod(fs, nod)->i_size;
-	init_bw(&bw);
-	while((bk = walk_bw(fs, nod, &bw, 0, 0)) != WALK_END)
-	{
-		if(fsize <= 0)
-			error_msg_and_die("wrong size while saving inode %d", nod);
-		if(fwrite(get_blk(fs, bk), (fsize > BLOCKSIZE) ? BLOCKSIZE : fsize, 1, f) != 1)
-			error_msg_and_die("error while saving inode %d", nod);
-		fsize -= BLOCKSIZE;
-	}
+	gen_write_block_data data = { f, nod };
+	struct ext2_inode inode;
+
+	data.left = get_nod(fs, nod, &inode)->i_size;
+	data.buf = xrealloc(NULL, fs->blocksize);
+	// TODO error (even above same call)
+	ext2fs_block_iterate3(fs, nod, LIST_FLAGS, NULL, write_func, &data);
+	free(data.buf);
 }
-#endif
 
 // print block/char device minor and major
 static void
@@ -2164,7 +2193,7 @@ print_link(filesystem *fs, ext2_ino_t nod)
 	else
 	{
 		printf("links to '");
-// TODO		write_blocks(fs, nod, stdout);
+		write_blocks(fs, nod, stdout);
 		printf("'\n");
 	}
 }
@@ -2229,7 +2258,6 @@ make_perms(uint32 mode, char perms[11])
 	}
 }
 
-#if 1
 // print an inode
 static void
 print_inode(filesystem *fs, ext2_ino_t nod)
@@ -2270,7 +2298,7 @@ print_inode(filesystem *fs, ext2_ino_t nod)
 	}
 #endif
 	make_perms(inode.i_mode, perms);
-	printf("%s,  size: %d byte%s (%d block%s)\n", perms, plural(inode.i_size), plural(inode.i_blocks / INOBLK));
+	printf("%s,  size: %lld byte%s (%d block%s)\n", perms, plural((long long) EXT2_I_SIZE(&inode)), plural(inode.i_blocks / INOBLK));
 	switch(inode.i_mode & FM_IFMT)
 	{
 		case FM_IFSOCK:
@@ -2300,18 +2328,22 @@ print_inode(filesystem *fs, ext2_ino_t nod)
 	}
 	printf("Done with inode %d\n",nod);
 }
-#endif
 
 static void
-get_bmp(struct ext2fs_struct_generic_bitmap *bmap, blk64_t b, uint32 num, uint8_t **bmp)
+get_bmp(struct ext2fs_struct_generic_bitmap *bmap, blk64_t b, uint32 num, uint8_t **bmp, size_t *size)
 {
 	uint32 i;
-	free(*bmp);
-	*bmp = (uint8_t *) calloc(1, (num+7)/8);
-	if (!*bmp)
-		perror_msg_and_die("out of memory");
-	// TODO errors
-	ext2fs_get_block_bitmap_range2(bmap, b+1, num, *bmp);
+	uint8_t *p = *bmp;
+	size_t s = (num+7)/8;;
+
+	if (s > *size) {
+		p = (uint8_t *) xrealloc(p, s);
+		*size = s;
+		*bmp = p;
+	}
+
+	if (ext2fs_get_block_bitmap_range2(bmap, b+1, num, p))
+		perror_msg_and_die("error reading bitmap");
 }
 
 // describes various fields in a filesystem
@@ -2319,7 +2351,8 @@ static void
 print_fs(filesystem *fs)
 {
 	uint32_t i;
-	uint8_t *bmp = NULL;;
+	uint8_t *bmp = NULL;
+	size_t bmp_size;
 
 	printf("%d blocks (%d free, %d reserved), first data block: %d\n",
 	       fs->super->s_blocks_count, fs->super->s_free_blocks_count,
@@ -2342,10 +2375,10 @@ print_fs(filesystem *fs)
 		     gd[i].bg_block_bitmap, gd[i].bg_inode_bitmap,
 		     gd[i].bg_inode_table);
 		printf("block bitmap allocation:\n");
-		get_bmp(fs->block_map, i * fs->super->s_blocks_per_group, fs->super->s_blocks_per_group, &bmp);
+		get_bmp(fs->block_map, i * fs->super->s_blocks_per_group, fs->super->s_blocks_per_group, &bmp, &bmp_size);
 		print_bm(bmp, fs->super->s_blocks_per_group);
 		printf("inode bitmap allocation:\n");
-		get_bmp(fs->inode_map, i * fs->super->s_inodes_per_group, fs->super->s_inodes_per_group, &bmp);
+		get_bmp(fs->inode_map, i * fs->super->s_inodes_per_group, fs->super->s_inodes_per_group, &bmp, &bmp_size);
 		print_bm(bmp, fs->super->s_inodes_per_group);
 		for (i = 1; i <= fs->super->s_inodes_per_group; i++)
 			if (allocated(bmp, i))
@@ -2457,18 +2490,16 @@ main(int argc, char **argv)
 	float reserved_frac = -1;
 	int fs_timestamp = -1;
 	char * fsout = "-";
-	char * fsin = 0;
+	char * fsin = NULL;
 	char * dopt[MAX_DOPT];
 	int didx = 0;
 	char * gopt[MAX_GOPT];
 	int gidx = 0;
 	int verbose = 0;
 	int holes = 0;
-	int emptyval = 0;
+	int emptyval = -1;
 	int squash_uids = 0;
 	int squash_perms = 0;
-	uint16 endian = 1;
-	int bigendian = !*(char*)&endian;
 	ext2_filsys fs;
 	int i;
 	int c;
@@ -2511,6 +2542,8 @@ main(int argc, char **argv)
 				break;
 			case 'd':
 			case 'D':
+				if (didx >= MAX_DOPT)
+					error_msg_and_die("too much -d options");
 				dopt[didx++] = optarg;
 				break;
 			case 'b':
@@ -2526,6 +2559,8 @@ main(int argc, char **argv)
 				reserved_frac = SI_atof(optarg) / 100;
 				break;
 			case 'g':
+				if (didx >= MAX_GOPT)
+					error_msg_and_die("too much -g options");
 				gopt[gidx++] = optarg;
 				break;
 			case 'e':
@@ -2588,7 +2623,7 @@ main(int argc, char **argv)
 
 	/* TODO clear unused space */
 #if 0
-	if(emptyval) {
+	if (emptyval >= 0) {
 		blk64_t b, count = ext2fs_blocks_count(fs->super);
 		for(b = 0; b < count; b++) {
 			blk64_t prev = b;
