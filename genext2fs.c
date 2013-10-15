@@ -1573,13 +1573,8 @@ showhelp(void)
 	"Create an ext2 filesystem image from directories/files\n\n"
 	"  -d, --root <directory>\n"
 	"  -D, --devtable <file>\n"
-	"  -b, --size-in-blocks <blocks>\n"
-	"  -i, --bytes-per-inode <bytes per inode>\n"
-	"  -N, --number-of-inodes <number of inodes>\n"
-	"  -m, --reserved-percentage <percentage of blocks to reserve>\n"
 	"  -g, --block-map <path>     Generate a block map file for this path.\n"
 	"  -e, --fill-value <value>   Fill unallocated blocks with value.\n"
-	"  -z, --allow-holes          Allow files with holes.\n"
 	"  -f, --faketime             Set filesystem timestamps to 0 (for testing).\n"
 	"  -q, --squash               Same as \"-U -P\".\n"
 	"  -U, --squash-uids          Squash owners making all files be owned by root.\n"
@@ -1601,11 +1596,7 @@ extern int optind, opterr, optopt;
 int
 main(int argc, char **argv)
 {
-	int nbblocks = -1;
-	int nbinodes = -1;
 	int nbresrvd = -1;
-	float bytes_per_inode = -1;
-	float reserved_frac = -1;
 	int fs_timestamp = -1;
 	char * fsout = "-";
 	char * dopt[MAX_DOPT];
@@ -1613,7 +1604,6 @@ main(int argc, char **argv)
 	char * gopt[MAX_GOPT];
 	int gidx = 0;
 	int verbose = 0;
-	int holes = 0;
 	int emptyval = -1;
 	int squash_uids = 0;
 	int squash_perms = 0;
@@ -1625,13 +1615,8 @@ main(int argc, char **argv)
 	struct option longopts[] = {
 	  { "root",		required_argument,	NULL, 'd' },
 	  { "devtable",		required_argument,	NULL, 'D' },
-	  { "size-in-blocks",	required_argument,	NULL, 'b' },
-	  { "bytes-per-inode",	required_argument,	NULL, 'i' },
-	  { "number-of-inodes",	required_argument,	NULL, 'N' },
-	  { "reserved-percentage", required_argument,	NULL, 'm' },
 	  { "block-map",	required_argument,	NULL, 'g' },
 	  { "fill-value",	required_argument,	NULL, 'e' },
-	  { "allow-holes",	no_argument, 		NULL, 'z' },
 	  { "faketime",		no_argument,		NULL, 'f' },
 	  { "squash",		no_argument,		NULL, 'q' },
 	  { "squash-uids",	no_argument,		NULL, 'U' },
@@ -1644,11 +1629,11 @@ main(int argc, char **argv)
 
 	app_name = argv[0];
 
-	while((c = getopt_long(argc, argv, "d:D:b:i:N:m:g:e:zfqUPhVv", longopts, NULL)) != EOF) {
+	while((c = getopt_long(argc, argv, "d:D:N:g:e:fqUPhVv", longopts, NULL)) != EOF) {
 #else
 	app_name = argv[0];
 
-	while((c = getopt(argc, argv,      "d:D:b:i:N:m:g:e:zfqUPhVv")) != EOF) {
+	while((c = getopt(argc, argv,      "d:D:N:g:e:fqUPhVv")) != EOF) {
 #endif /* HAVE_GETOPT_LONG */
 		switch(c)
 		{
@@ -1658,18 +1643,6 @@ main(int argc, char **argv)
 					error_msg_and_die("too much -d options");
 				dopt[didx++] = optarg;
 				break;
-			case 'b':
-				nbblocks = SI_atof(optarg);
-				break;
-			case 'i':
-				bytes_per_inode = SI_atof(optarg);
-				break;
-			case 'N':
-				nbinodes = SI_atof(optarg);
-				break;
-			case 'm':
-				reserved_frac = SI_atof(optarg) / 100;
-				break;
 			case 'g':
 				if (didx >= MAX_GOPT)
 					error_msg_and_die("too much -g options");
@@ -1677,9 +1650,6 @@ main(int argc, char **argv)
 				break;
 			case 'e':
 				emptyval = atoi(optarg);
-				break;
-			case 'z':
-				holes = 1;
 				break;
 			case 'f':
 				fs_timestamp = 0;
