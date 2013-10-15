@@ -1571,7 +1571,6 @@ showhelp(void)
 {
 	fprintf(stderr, "Usage: %s [options] image\n"
 	"Create an ext2 filesystem image from directories/files\n\n"
-	"  -x, --starting-image <image>\n"
 	"  -d, --root <directory>\n"
 	"  -D, --devtable <file>\n"
 	"  -b, --size-in-blocks <blocks>\n"
