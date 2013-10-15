@@ -499,7 +499,7 @@ xreadlink(const char *path)
 	return buf;
 }
 
-int
+static int
 is_hardlink(ino_t inode)
 {
 	int i;
@@ -592,7 +592,8 @@ find_path(filesystem *fs, ext2_ino_t nod, const char * name)
 	return rc ? 0 : ino;
 }
 
-static int do_modetoext2lag (mode_t mode)
+static int
+do_modetoext2lag (mode_t mode)
 {
 	if (S_ISREG(mode)) {
 		return EXT2_FT_REG_FILE;
@@ -612,24 +613,27 @@ static int do_modetoext2lag (mode_t mode)
 	return EXT2_FT_UNKNOWN;
 }
 
-static inline int old_valid_dev(dev_t dev)
+static inline int
+old_valid_dev(dev_t dev)
 {
 	return major(dev) < 256 && minor(dev) < 256;
 }
 
-static inline __u16 old_encode_dev(dev_t dev)
+static inline uint16_t
+old_encode_dev(dev_t dev)
 {
 	return (major(dev) << 8) | minor(dev);
 }
 
-static inline __u32 new_encode_dev(dev_t dev)
+static inline uint8_t
+new_encode_dev(dev_t dev)
 {
 	unsigned major = major(dev);
 	unsigned minor = minor(dev);
 	return (minor & 0xff) | (major << 8) | ((minor & ~0xff) << 12);
 }
 
-struct ext2_inode*
+static struct ext2_inode*
 get_nod(ext2_filsys e2fs, ext2_ino_t ino, struct ext2_inode* inode)
 {
 	if (ext2fs_read_inode(e2fs, ino, inode))
@@ -637,7 +641,8 @@ get_nod(ext2_filsys e2fs, ext2_ino_t ino, struct ext2_inode* inode)
 	return inode;
 }
 
-ext2_ino_t do_create (ext2_filsys e2fs, 
+static ext2_ino_t
+do_create (ext2_filsys e2fs,
 	const ext2_ino_t ino, /** parent inode */
 	const char *name,
 	mode_t mode,
@@ -846,7 +851,7 @@ mklink_fs(filesystem *e2fs, ext2_ino_t parent_nod, const char *destname, size_t 
 	debugf("source: %s, dest: %s", sourcename, destname);
 
 	/* a short symlink is stored in the inode (recycling the i_block array) */
-	if (sourcelen < (EXT2_N_BLOCKS * sizeof(__u32))) {
+	if (sourcelen < (EXT2_N_BLOCKS * sizeof(uint32_t))) {
 		ino = do_create(e2fs, parent_nod, destname, LINUX_S_IFLNK | 0777, 0, sourcename, uid, gid, ctime, mtime);
 	} else {
 		ino = do_create(e2fs, parent_nod, destname, LINUX_S_IFLNK | 0777, 0, NULL, uid, gid, ctime, mtime);
