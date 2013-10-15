@@ -860,7 +860,7 @@ mklink_fs(filesystem *e2fs, ext2_ino_t parent_nod, const char *destname, size_t 
 		if (efile == NULL)
 			perror_msg_and_die("do_open(%d); failed", ino);
 		wr = do_write(efile, sourcename, sourcelen, 0);
-		if (wr != strlen(sourcename))
+		if (wr != sourcelen)
 			perror_msg_and_die("do_write(efile, %s, %d, 0); failed", sourcename, strlen(sourcename) + 1);
 		rt = do_release(efile);
 		if (rt != 0)
