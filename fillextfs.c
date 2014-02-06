@@ -1,5 +1,5 @@
 /* vi: set sw=8 ts=8: */
-// genext2fs.c
+// fillextfs.c
 //
 // ext2 filesystem generator for embedded systems
 // Copyright (C) 2000 Xavier Bestel <xavier.bestel@free.fr>
