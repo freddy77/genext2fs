@@ -379,6 +379,7 @@ static struct hdlinks_s hdlinks;
 static char * app_name;
 static const char *const memory_exhausted = "memory exhausted";
 
+#ifdef DEBUG
 static void
 debugf(int line, const char *fmt, ...)
 {
@@ -390,8 +391,10 @@ debugf(int line, const char *fmt, ...)
 	putc('\n', stderr);
 	va_end(p);
 }
-
 #define debugf(args...) debugf(__LINE__, args)
+#else
+#define debugf(args...) do {} while(0)
+#endif
 
 // error (un)handling
 static void
