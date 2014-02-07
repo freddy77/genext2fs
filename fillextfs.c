@@ -456,19 +456,6 @@ xfopen(const char *path, const char *mode)
 	return fp;
 }
 
-static char *
-xstrdup(const char *s)
-{
-	char *t;
-
-	if (s == NULL)
-		return NULL;
-	t = strdup(s);
-	if (t == NULL)
-		error_msg_and_die(memory_exhausted);
-	return t;
-}
-
 static void *
 xrealloc(void *ptr, size_t size)
 {
@@ -654,7 +641,6 @@ do_create (ext2_filsys e2fs,
 	uid_t uid, gid_t gid,
 	time_t ctime, time_t mtime)
 {
-	int rt;
 	int is_dir = S_ISDIR(mode);
 	errcode_t rc;
 
@@ -790,7 +776,6 @@ do_write(ext2_file_t efile, const char *buf, size_t size, off_t offset)
 	const char *tmp;
 	unsigned int wr;
 	unsigned long long npos;
-	unsigned long long fsize;
 	struct ext2_inode *inode;
 
 	debugf("enter");
@@ -1462,7 +1447,6 @@ print_inode(filesystem *fs, ext2_ino_t nod)
 static void
 get_bmp(struct ext2fs_struct_generic_bitmap *bmap, blk64_t b, uint32_t num, uint8_t **bmp, size_t *size)
 {
-	uint32_t i;
 	uint8_t *p = *bmp;
 	size_t s = (num+7)/8;;
 
@@ -1596,7 +1580,6 @@ extern int optind, opterr, optopt;
 int
 main(int argc, char **argv)
 {
-	int nbresrvd = -1;
 	int fs_timestamp = -1;
 	char * fsout = "-";
 	char * dopt[MAX_DOPT];
