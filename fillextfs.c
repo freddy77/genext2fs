@@ -585,19 +585,20 @@ find_path(filesystem *fs, ext2_ino_t nod, const char * name)
 static int
 do_modetoext2lag (mode_t mode)
 {
-	if (S_ISREG(mode)) {
+	switch (mode & FM_IFMT) {
+	case FM_IFREG:
 		return EXT2_FT_REG_FILE;
-	} else if (S_ISDIR(mode)) {
+	case FM_IFDIR:
 		return EXT2_FT_DIR;
-	} else if (S_ISCHR(mode)) {
+	case FM_IFCHR:
 		return EXT2_FT_CHRDEV;
-	} else if (S_ISBLK(mode)) {
+	case FM_IFBLK:
 		return EXT2_FT_BLKDEV;
-	} else if (S_ISFIFO(mode)) {
+	case FM_IFIFO:
 		return EXT2_FT_FIFO;
-	} else if (S_ISSOCK(mode)) {
+	case FM_IFSOCK:
 		return EXT2_FT_SOCK;
-	} else if (S_ISLNK(mode)) {
+	case FM_IFLNK:
 		return EXT2_FT_SYMLINK;
 	}
 	return EXT2_FT_UNKNOWN;
@@ -641,7 +642,7 @@ do_create (ext2_filsys e2fs,
 	uid_t uid, gid_t gid,
 	time_t ctime, time_t mtime)
 {
-	int is_dir = S_ISDIR(mode);
+	int is_dir = (mode & FM_IFMT) == FM_IFDIR;
 	errcode_t rc;
 
 	struct ext2_inode inode;
@@ -840,9 +841,9 @@ mklink_fs(filesystem *e2fs, ext2_ino_t parent_nod, const char *destname, size_t 
 
 	/* a short symlink is stored in the inode (recycling the i_block array) */
 	if (sourcelen < (EXT2_N_BLOCKS * sizeof(uint32_t))) {
-		ino = do_create(e2fs, parent_nod, destname, LINUX_S_IFLNK | 0777, 0, sourcename, uid, gid, ctime, mtime);
+		ino = do_create(e2fs, parent_nod, destname, FM_IFLNK | 0777, 0, sourcename, uid, gid, ctime, mtime);
 	} else {
-		ino = do_create(e2fs, parent_nod, destname, LINUX_S_IFLNK | 0777, 0, NULL, uid, gid, ctime, mtime);
+		ino = do_create(e2fs, parent_nod, destname, FM_IFLNK | 0777, 0, NULL, uid, gid, ctime, mtime);
 
 		efile = do_open(e2fs, ino, O_WRONLY);
 		if (efile == NULL)
