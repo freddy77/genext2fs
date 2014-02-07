@@ -379,6 +379,9 @@ static struct hdlinks_s hdlinks;
 static char * app_name;
 static const char *const memory_exhausted = "memory exhausted";
 
+static int do_modetoext2lag (mode_t mode);
+static struct ext2_inode *get_nod(ext2_filsys e2fs, ext2_ino_t ino, struct ext2_inode* inode);
+
 #ifdef DEBUG
 static void
 debugf(int line, const char *fmt, ...)
@@ -541,7 +544,11 @@ static void
 add2dir(filesystem *fs, ext2_ino_t dnod, ext2_ino_t nod, const char* name)
 {
 	int rc;
-	int flags = 0; // do_modetoext2lag(mode);
+	int flags;
+	struct ext2_inode inode;
+
+	get_nod(fs, nod, &inode);
+	flags = do_modetoext2lag(inode.i_mode);
 
 	do {
 		debugf("calling ext2fs_link(e2fs, %d, %s, %d, %d);", dnod, name, nod, flags);
@@ -554,6 +561,11 @@ add2dir(filesystem *fs, ext2_ino_t dnod, ext2_ino_t nod, const char* name)
 	} while (rc == EXT2_ET_DIR_NO_SPACE);
 	if (rc)
 		error_msg_and_die("ext2fs_link(e2fs, %d, %s, %d, %d); failed", dnod, name, nod, flags);
+
+	/* increment link count */
+	inode.i_links_count += 1;
+	if (ext2fs_write_inode(fs, nod, &inode))
+		error_msg_and_die("ext2fs_write_inode failed");
 }
 
 // find an entry in a directory
