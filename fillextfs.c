@@ -771,10 +771,10 @@ do_open(ext2_filsys e2fs, ext2_ino_t ino, int flags)
 
 // TODO support files bigger then 2/4gb
 static size_t
-do_write(ext2_file_t efile, const char *buf, size_t size, off_t offset)
+do_write(ext2_file_t efile, const uint8_t *buf, size_t size, off_t offset)
 {
 	int rt;
-	const char *tmp;
+	const uint8_t *tmp;
 	unsigned int wr;
 	unsigned long long npos;
 	struct ext2_inode *inode;
@@ -829,7 +829,7 @@ do_release(ext2_file_t efile)
 
 // make a symlink
 static ext2_ino_t
-mklink_fs(filesystem *e2fs, ext2_ino_t parent_nod, const char *destname, size_t sourcelen, uint8_t *sourcename, uid_t uid, gid_t gid, uint32_t ctime, uint32_t mtime)
+mklink_fs(filesystem *e2fs, ext2_ino_t parent_nod, const char *destname, size_t sourcelen, const char *sourcename, uid_t uid, gid_t gid, uint32_t ctime, uint32_t mtime)
 {
 	int rt;
 	size_t wr;
@@ -848,7 +848,7 @@ mklink_fs(filesystem *e2fs, ext2_ino_t parent_nod, const char *destname, size_t 
 		efile = do_open(e2fs, ino, O_WRONLY);
 		if (efile == NULL)
 			perror_msg_and_die("do_open(%d); failed", ino);
-		wr = do_write(efile, sourcename, sourcelen, 0);
+		wr = do_write(efile, (const uint8_t*) sourcename, sourcelen, 0);
 		if (wr != sourcelen)
 			perror_msg_and_die("do_write(efile, %s, %d, 0); failed", sourcename, strlen(sourcename) + 1);
 		rt = do_release(efile);
@@ -1108,7 +1108,7 @@ add2fs_from_dir(filesystem *fs, ext2_ino_t this_nod, int squash_uids, int squash
 				break;
 			case S_IFLNK:
 				lnk = xreadlink(dent->d_name);
-				mklink_fs(fs, this_nod, name, st.st_size, (uint8_t*)lnk, uid, gid, ctime, mtime);
+				mklink_fs(fs, this_nod, name, st.st_size, lnk, uid, gid, ctime, mtime);
 				free(lnk);
 				break;
 			case S_IFREG:
