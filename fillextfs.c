@@ -1561,7 +1561,7 @@ populate_fs(filesystem *fs, char **dopt, int didx, int squash_uids, int squash_p
 static void
 showversion(void)
 {
-	printf("genext2fs " VERSION "\n");
+	printf("fillextfs " VERSION "\n");
 }
 
 static void
@@ -1579,8 +1579,7 @@ showhelp(void)
 	"  -P, --squash-perms         Squash permissions on all files.\n"
 	"  -h, --help\n"
 	"  -V, --version\n"
-	"  -v, --verbose\n\n"
-	"Report bugs to genext2fs-devel@lists.sourceforge.net\n", app_name);
+	"  -v, --verbose\n", app_name);
 }
 
 #define MAX_DOPT 128
