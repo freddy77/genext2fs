@@ -1130,10 +1130,11 @@ add2fs_from_dir(filesystem *fs, ext2_ino_t this_nod, int squash_uids, int squash
 				break;
 			case S_IFDIR:
 				nod = mkdir_fs(fs, this_nod, name, mode, uid, gid, ctime, mtime);
-				if(chdir(dent->d_name) < 0)
+				if (chdir(dent->d_name) < 0)
 					perror_msg_and_die(name);
 				add2fs_from_dir(fs, nod, squash_uids, squash_perms, fs_timestamp);
-				chdir("..");
+				if (chdir("..") < 0)
+					perror_msg_and_die(name);
 				break;
 			default:
 				error_msg("ignoring entry %s", name);
